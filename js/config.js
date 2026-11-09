@@ -10,8 +10,8 @@
 window.CONFIG = {
   SITE_NAME: 'AZ Arena',
 
-  SUPABASE_URL: 'https://XXXX.supabase.co',
-  SUPABASE_ANON_KEY: 'XXXX',
+  SUPABASE_URL: 'https://zrwgrtsoicisqnvurrhx.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_Dnylsox2bPYIWYesxuoGxw_OD9UzIjX',
 
   // İstifadəçilər e-poçt olmadan, istifadəçi adı ilə qeydiyyatdan keçir.
   // Supabase daxildə "istifadəçiadı@<bu domen>" formasında saxlayır.
