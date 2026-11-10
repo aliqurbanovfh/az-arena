@@ -508,7 +508,7 @@
   const entryChip = (s) => `<span class="chip st-${s}">${ENTRY[s]}</span>`;
   const userLink = (p) => (p ? `<a href="#/u/${esc(p.username)}">${esc(p.nick)}</a> <span class="dim small">@${esc(p.username)}</span>` : '<span class="dim">silinmiş</span>');
   const hostName = (e) => e.org_name || (e.creator && e.creator.nick) || '';
-  const EV_SEL = '*, creator:profiles(nick, username)';
+  const EV_SEL = '*, creator:profiles!events_creator_id_fkey(nick, username)';
 
   function zoneHTML(e, cls = '') {
     return `<div class="zone ${cls}" data-until="${esc(e.starts_at)}" data-from="${esc(e.created_at)}" role="timer" aria-label="Başlamağa qalan vaxt">
@@ -823,7 +823,7 @@
       sb.from('event_entries').select('pubg_nick, team_name').eq('event_id', id).eq('status', 'approved').order('created_at'),
       me ? sb.from('event_entries').select('*').eq('event_id', id).eq('user_id', me).maybeSingle() : none,
       me ? sb.rpc('get_room', { p_event: id }) : none,
-      canReview ? sb.from('event_entries').select('*, profile:profiles(nick, username)').eq('event_id', id).order('created_at') : none,
+      canReview ? sb.from('event_entries').select('*, profile:profiles!event_entries_user_id_fkey(nick, username)').eq('event_id', id).order('created_at') : none,
       canEdit ? sb.from('event_secrets').select('*').eq('event_id', id).maybeSingle() : none,
     ]);
     const approved = appr.data || [];
@@ -1169,7 +1169,7 @@
   async function pageSquads(ctx) {
     const kind = ctx.q.get('t') === 'team' ? 'team' : 'clan';
     const [{ data, error }, mine] = await Promise.all([
-      sb.from('squads').select('*, leader:profiles(nick, username)').eq('kind', kind).order('members_count', { ascending: false }).limit(200),
+      sb.from('squads').select('*, leader:profiles!squads_leader_id_fkey(nick, username)').eq('kind', kind).order('members_count', { ascending: false }).limit(200),
       myMemberships(),
     ]);
     if (error) throw error;
@@ -1231,8 +1231,8 @@
   async function pageSquad(ctx) {
     const id = ctx.params[0];
     const [{ data: s, error }, { data: members, error: e2 }] = await Promise.all([
-      sb.from('squads').select('*, leader:profiles(nick, username)').eq('id', id).maybeSingle(),
-      sb.from('squad_members').select('*, profile:profiles(nick, username, pubg_id)').eq('squad_id', id).order('created_at'),
+      sb.from('squads').select('*, leader:profiles!squads_leader_id_fkey(nick, username)').eq('id', id).maybeSingle(),
+      sb.from('squad_members').select('*, profile:profiles!squad_members_user_id_fkey(nick, username, pubg_id)').eq('squad_id', id).order('created_at'),
     ]);
     if (error || e2) throw error || e2;
     if (!s) return paint(ctx, emptyPage('Tapılmadı', '<a class="btn" href="#/squads">Klanlar</a>'));
@@ -1514,7 +1514,7 @@
 
   async function pageListings(ctx) {
     const cat = CATS[ctx.q.get('c')] ? ctx.q.get('c') : 'all';
-    let qb = sb.from('listings').select('*, author:profiles(nick, username)').eq('is_active', true)
+    let qb = sb.from('listings').select('*, author:profiles!listings_author_id_fkey(nick, username)').eq('is_active', true)
       .gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(80);
     if (cat !== 'all') qb = qb.eq('category', cat);
     const { data, error } = await qb;
@@ -1669,9 +1669,9 @@
     const p = S.profile;
     if (!p) return paint(ctx, emptyPage('Profil tapılmadı. Çıxıb yenidən daxil olun.', '<button class="btn" data-logout>Çıxış</button>'));
     const [ent, evs, sq, ls] = await Promise.all([
-      sb.from('event_entries').select('id, status, reject_reason, created_at, event:events(id, title, starts_at, kind, status)').eq('user_id', me).order('created_at', { ascending: false }).limit(30),
+      sb.from('event_entries').select('id, status, reject_reason, created_at, event:events!event_entries_event_id_fkey(id, title, starts_at, kind, status)').eq('user_id', me).order('created_at', { ascending: false }).limit(30),
       sb.from('events').select('id, title, starts_at, kind, status, taken, slots').eq('creator_id', me).order('starts_at', { ascending: false }).limit(30),
-      sb.from('squad_members').select('status, role, squad:squads(id, name, tag, kind)').eq('user_id', me),
+      sb.from('squad_members').select('status, role, squad:squads!squad_members_squad_id_fkey(id, name, tag, kind)').eq('user_id', me),
       sb.from('listings').select('*').eq('author_id', me).order('created_at', { ascending: false }),
     ]);
     const myEvents = evs.data || [];
@@ -1757,8 +1757,8 @@
     if (error) throw error;
     if (!p) return paint(ctx, emptyPage('İstifadəçi tapılmadı'));
     const [sq, ls, st] = await Promise.all([
-      sb.from('squad_members').select('role, squad:squads(id, name, tag, kind)').eq('user_id', p.id).eq('status', 'member'),
-      sb.from('listings').select('*, author:profiles(nick, username)').eq('author_id', p.id).eq('is_active', true).gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }),
+      sb.from('squad_members').select('role, squad:squads!squad_members_squad_id_fkey(id, name, tag, kind)').eq('user_id', p.id).eq('status', 'member'),
+      sb.from('listings').select('*, author:profiles!listings_author_id_fkey(nick, username)').eq('author_id', p.id).eq('is_active', true).gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }),
       uid() ? sb.from('staff').select('role').eq('user_id', p.id).maybeSingle() : Promise.resolve({ data: null }),
     ]);
     const canAdmin = uid() && (hasPerm('users') || hasPerm('organizers') || isSuper());
@@ -1820,7 +1820,7 @@
       cnt(sb.from('listings').select('id', { count: 'exact', head: true }).eq('is_active', true).gt('expires_at', nowIso)),
       sb.from('events').select(EV_SEL).in('status', ['open', 'closed']).gte('starts_at', nowIso).order('starts_at').limit(5),
       sb.from('profiles').select('*').order('created_at', { ascending: false }).limit(6),
-      hasPerm('payments') ? sb.from('event_entries').select('*, profile:profiles(nick, username), event:events(id, title, entry_fee)').eq('status', 'pending').order('created_at').limit(5) : Promise.resolve({ data: [] }),
+      hasPerm('payments') ? sb.from('event_entries').select('*, profile:profiles!event_entries_user_id_fkey(nick, username), event:events!event_entries_event_id_fkey(id, title, entry_fee)').eq('status', 'pending').order('created_at').limit(5) : Promise.resolve({ data: [] }),
     ]);
     const tile = (n, label, icon, href, hot) => `<${href ? `a href="${href}"` : 'div'} class="stat ${hot ? 'hot' : ''}">${I[icon]}<b>${n}</b><span>${label}</span></${href ? 'a' : 'div'}>`;
     const ev = upcoming.data || [];
@@ -1857,7 +1857,7 @@
 
   async function adminPayments(ctx, head) {
     const { data, error } = await sb.from('event_entries')
-      .select('*, profile:profiles(nick, username), event:events(*)')
+      .select('*, profile:profiles!event_entries_user_id_fkey(nick, username), event:events!event_entries_event_id_fkey(*)')
       .eq('status', 'pending').order('created_at').limit(100);
     if (error) throw error;
     const thumbs = await signedThumbs(data);
@@ -1959,7 +1959,7 @@
   }
 
   async function adminAdmins(ctx, head) {
-    const { data, error } = await sb.from('staff').select('*, profile:profiles(nick, username)').eq('role', 'admin').order('created_at');
+    const { data, error } = await sb.from('staff').select('*, profile:profiles!staff_user_id_fkey(nick, username)').eq('role', 'admin').order('created_at');
     if (error) throw error;
     paint(ctx, `<div class="stack-lg">${head}
       <div class="panel-flat"><p class="small muted">Sən baş adminsən. Sənin adın heç bir siyahıda, jurnalda və təsdiqlərdə başqalarına görünmür: əməliyyatların "Sistem" kimi yazılır. Adminlər başqasına adminlik verə bilmir.</p></div>
@@ -1997,12 +1997,12 @@
   }
 
   async function adminReports(ctx, head) {
-    const { data, error } = await sb.from('reports').select('*, reporter:profiles(nick, username)').eq('status', 'open').order('created_at').limit(100);
+    const { data, error } = await sb.from('reports').select('*, reporter:profiles!reports_reporter_id_fkey(nick, username)').eq('status', 'open').order('created_at').limit(100);
     if (error) throw error;
     const ids = (t) => data.filter((r) => r.target_type === t).map((r) => r.target_id);
     const none = Promise.resolve({ data: [] });
     const [ls, us, sq, ev] = await Promise.all([
-      ids('listing').length ? sb.from('listings').select('id, title, author:profiles(nick, username)').in('id', ids('listing')) : none,
+      ids('listing').length ? sb.from('listings').select('id, title, author:profiles!listings_author_id_fkey(nick, username)').in('id', ids('listing')) : none,
       ids('user').length ? sb.from('profiles').select('id, nick, username').in('id', ids('user')) : none,
       ids('squad').length ? sb.from('squads').select('id, name').in('id', ids('squad')) : none,
       ids('event').length ? sb.from('events').select('id, title').in('id', ids('event')) : none,
