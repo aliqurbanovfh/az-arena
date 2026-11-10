@@ -19,6 +19,7 @@
     home: svg('<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/>'),
     zone: svg('<circle cx="12" cy="12" r="8.5" stroke-dasharray="3 2.6"/><circle cx="13.5" cy="10.5" r="4"/>'),
     users: svg('<circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9.5" r="2.4"/><path d="M16 14.2c2.4.1 4 1.7 4.5 4.3"/>'),
+    chat: svg('<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/>'),
     board: svg('<path d="M4 10v4h3l7 4V6l-7 4H4z"/><path d="M17.5 9.5a3.5 3.5 0 0 1 0 5"/>'),
     user: svg('<circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c.8-3.8 3.6-6 7-6s6.2 2.2 7 6"/>'),
     copy: svg('<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6A1.5 1.5 0 0 0 14 4.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/>'),
@@ -99,9 +100,11 @@
       [/event_entries_event_id_user_id_key/i, 'Siz artıq bu tədbirə qoşulmusunuz'],
       [/duplicate key/i, 'Bu artıq mövcuddur'],
       [/violates check constraint/i, 'Məlumatlardan biri düzgün deyil (uzunluğu və ya formatı yoxlayın)'],
+      [/Çox tez yazırsınız/i, 'Çox tez yazırsan, bir az gözlə'],
       [/Failed to fetch|NetworkError|Load failed/i, 'İnternet bağlantısını yoxlayın'],
       [/Database error saving new user/i, 'Qeydiyyat alınmadı: istifadəçi adı tutulmuş ola bilər'],
       [/JWT expired/i, 'Sessiya bitib, yenidən daxil olun'],
+      [/relation "public.messages" does not exist|table 'public.messages'/i, 'Çat hələ aktiv deyil: Supabase-də supabase/04-chat.sql faylını işlədin'],
       [/m10_number|pay_method|can_create_clan|set_clan_creator/i, 'Bu funksiya hələ aktiv deyil: Supabase-də supabase/03-m10-klan.sql faylını işlədin'],
       [/cover_url|hero_images|Bucket not found/i, 'Şəkil funksiyası hələ aktiv deyil: Supabase-də supabase/02-dizayn.sql faylını işlədin'],
       [/exceeded the maximum allowed size|Payload too large/i, 'Şəkil çox böyükdür'],
@@ -305,6 +308,7 @@
   // Naviqasiya və çərçivə
   // ------------------------------------------------------------------
   let actions = {}, forms = {}, renderSeq = 0, loadTimer = null;
+  const teardowns = [];
 
   function paint(ctx, html, acts = {}, frms = {}) {
     if (ctx.seq !== renderSeq) return false;
@@ -387,12 +391,12 @@
 
   function renderChrome(path) {
     const top = (path || '').split('/')[0];
-    const sect = { event: 'events', events: 'events', squad: 'squads', squads: 'squads', listing: 'listings', listings: 'listings', profile: 'profile', u: 'profile', login: 'profile', register: 'profile', admin: 'admin' }[top] || (top === '' ? 'home' : '');
+    const sect = { event: 'events', events: 'events', squad: 'squads', squads: 'squads', listing: 'listings', listings: 'listings', chat: 'chat', profile: 'profile', u: 'profile', login: 'profile', register: 'profile', admin: 'admin' }[top] || (top === '' ? 'home' : '');
     const badge = S.pending ? ` <span class="badge-count">${S.pending}</span>` : '';
     const hasAdmin = uid() && adminTabs().length > 0;
 
     $('#topnav').innerHTML =
-      [['events', 'Tədbirlər'], ['squads', 'Klanlar'], ['listings', 'Elanlar']]
+      [['events', 'Tədbirlər'], ['chat', 'Çat'], ['squads', 'Klanlar'], ['listings', 'Elanlar']]
         .map(([h, t]) => `<a href="#/${h}" class="${sect === h ? 'active' : ''}">${t}</a>`).join('') +
       (hasAdmin ? `<a href="#/admin" class="${sect === 'admin' ? 'active' : ''}">Admin${badge}</a>` : '');
 
@@ -400,7 +404,7 @@
       ? `<a class="btn btn-sm btn-ghost" href="#/profile">${I.user}<span>${esc((S.profile && S.profile.nick) || 'Profil')}</span></a>`
       : `<a class="btn btn-sm btn-ghost hide-mobile" href="#/login">Daxil ol</a><a class="btn btn-sm btn-primary" href="#/register">Qeydiyyat</a>`;
 
-    const tabs = [['', 'Ana', I.home, 'home'], ['events', 'Tədbirlər', I.zone, 'events'], ['squads', 'Klanlar', I.users, 'squads'], ['listings', 'Elanlar', I.board, 'listings'],
+    const tabs = [['', 'Ana', I.home, 'home'], ['events', 'Tədbirlər', I.zone, 'events'], ['chat', 'Çat', I.chat, 'chat'], ['squads', 'Klanlar', I.users, 'squads'], ['listings', 'Elanlar', I.board, 'listings'],
       uid() ? ['profile', 'Profil', I.user, 'profile'] : ['login', 'Daxil ol', I.user, 'profile']];
     $('#tabbar').innerHTML = tabs.map(([h, t, ic, key]) =>
       `<a href="#/${h}" class="${sect === key || (key === 'profile' && sect === 'admin') ? 'active' : ''}">${ic}<span>${t}</span>${key === 'profile' && hasAdmin && S.pending ? `<span class="badge-count">${S.pending}</span>` : ''}</a>`).join('');
@@ -426,6 +430,7 @@
     [/^squad\/new$/, pageSquadForm],
     [/^squad\/([\w-]+)$/, pageSquad],
     [/^listings$/, pageListings],
+    [/^chat$/, pageChat],
     [/^listing\/new$/, pageListingForm],
     [/^listing\/([\w-]+)\/edit$/, pageListingForm],
     [/^login$/, pageLogin],
@@ -437,9 +442,10 @@
 
   async function render(opts = {}) {
     const seq = ++renderSeq;
+    teardowns.splice(0).forEach((fn) => { try { fn(); } catch (e) { console.error(e); } });
     const raw = location.hash.replace(/^#\/?/, '');
     const [path, qs] = raw.split('?');
-    const ctx = { seq, path, q: new URLSearchParams(qs || ''), params: [] };
+    const ctx = { seq, path, q: new URLSearchParams(qs || ''), params: [], teardown: (fn) => { if (seq === renderSeq) teardowns.push(fn); else fn(); } };
     renderChrome(path);
     let fn = null;
     for (const [re, f] of ROUTES) { const m = path.match(re); if (m) { fn = f; ctx.params = m.slice(1); break; } }
@@ -1242,7 +1248,7 @@
     let joinBox = '';
     if (!uid()) joinBox = `<a class="btn btn-primary" href="#/login?next=squad/${s.id}">Qoşulmaq üçün daxil ol</a>`;
     else if (me && me.status === 'pending') joinBox = `<div class="row"><span class="chip st-pending">Sorğun göndərilib</span><button class="btn btn-sm btn-ghost" data-act="leave">Geri götür</button></div>`;
-    else if (myRole) joinBox = `<div class="row"><span class="chip role-admin">Sən: ${ROLE[myRole]}</span>${isLeader ? '' : '<button class="btn btn-sm btn-ghost" data-act="leave">Çıx</button>'}</div>`;
+    else if (myRole) joinBox = `<div class="row"><a class="btn btn-primary" href="#/chat?r=${s.id}">${I.chat}${s.kind === 'clan' ? 'Klan çatı' : 'Komanda çatı'}</a><span class="chip role-admin">Sən: ${ROLE[myRole]}</span>${isLeader ? '' : '<button class="btn btn-sm btn-ghost" data-act="leave">Çıx</button>'}</div>`;
     else if (!banned() && s.recruiting) joinBox = '<button class="btn btn-primary" data-act="join">Qoşulma sorğusu göndər</button>';
     else if (!s.recruiting) joinBox = '<span class="chip">Hazırda üzv qəbul edilmir</span>';
 
@@ -1304,6 +1310,155 @@
         if (e) throw e; toast('Yadda saxlanıldı', 'ok'); refresh();
       },
     });
+  }
+
+  // ==================================================================
+  // ÇAT (ümumi + klan/komanda). Mesajlar 30 dəqiqə yaşayır.
+  // ==================================================================
+  const CHAT_TTL = 30 * 60e3;
+  const profCache = {};
+  async function chatProfiles(ids) {
+    const need = [...new Set(ids)].filter((id) => id && !profCache[id]);
+    if (!need.length) return;
+    const { data } = await sb.from('profiles').select('id, nick, username').in('id', need);
+    (data || []).forEach((p) => { profCache[p.id] = p; });
+  }
+
+  async function pageChat(ctx) {
+    if (!requireLogin(ctx)) return;
+    const mine = await myMemberships();
+    const ids = mine.filter((m) => m.status === 'member').map((m) => m.squad_id);
+    let squads = [];
+    if (ids.length) {
+      const { data } = await sb.from('squads').select('id, name, tag, kind').in('id', ids);
+      squads = data || [];
+    }
+    const want = ctx.q.get('r') || 'global';
+    let room = 'global', roomName = 'Ümumi çat';
+    if (want !== 'global') {
+      const q = squads.find((x) => x.id === want);
+      if (q) { room = q.id; roomName = q.name; }
+      else if (hasPerm('squads')) {
+        const { data } = await sb.from('squads').select('id, name').eq('id', want).maybeSingle();
+        if (data) { room = data.id; roomName = data.name; }
+      }
+    }
+    const rooms = [{ id: 'global', name: 'Ümumi', kind: 'global' }].concat(squads.map((q) => ({ id: q.id, name: q.name, kind: q.kind })));
+    if (room !== 'global' && !rooms.some((r) => r.id === room)) rooms.push({ id: room, name: roomName, kind: 'clan' });
+
+    const since = new Date(Date.now() - CHAT_TTL).toISOString();
+    const { data: initial, error } = await sb.from('messages').select('*').eq('room', room).gt('created_at', since).order('id', { ascending: false }).limit(150);
+    if (error) throw error;
+    const msgs = (initial || []).reverse();
+    await chatProfiles(msgs.map((m) => m.user_id));
+    const canMod = hasPerm('moderation');
+
+    const msgHTML = (m, prev) => {
+      const p = profCache[m.user_id] || { nick: '…', username: '' };
+      const own = m.user_id === uid();
+      const grouped = prev && prev.user_id === m.user_id && Date.parse(m.created_at) - Date.parse(prev.created_at) < 3 * 60e3;
+      return `<div class="msg ${own ? 'own' : ''} ${grouped ? 'grouped' : ''}" data-id="${m.id}" data-t="${esc(m.created_at)}">
+        ${own ? '' : (grouped ? '<span class="msg-av"></span>' : `<a class="msg-av" href="#/u/${esc(p.username)}">${avatar(p)}</a>`)}
+        <div class="msg-bubble">
+          ${own || grouped ? '' : `<a class="msg-name" href="#/u/${esc(p.username)}" style="color:${avColor(p.username || p.nick)}">${esc(p.nick)}</a>`}
+          <p class="msg-text">${esc(m.body)}</p>
+          <span class="msg-meta">${fmtHM(m.created_at)}${own || canMod ? `<button class="msg-del" data-act="del" data-id="${m.id}" aria-label="Mesajı sil">${I.x}</button>` : ''}</span>
+        </div></div>`;
+    };
+    const listHTML = (arr) => arr.length ? arr.map((m, i) => msgHTML(m, arr[i - 1])).join('')
+      : `<div class="chat-empty">${ILL.listing.replace('class="f-ill"', 'class="f-ill" style="width:72px;height:72px"')}<p>Hələ mesaj yoxdur. İlk sən yaz!</p></div>`;
+
+    const ok = paint(ctx, `<div class="chat">
+      <div class="chat-head">
+        <nav class="tabs chat-rooms" aria-label="Çat otaqları">${rooms.map((r) => `<a href="#/chat${r.id === 'global' ? '' : '?r=' + r.id}" class="${r.id === room ? 'on' : ''}">${r.kind === 'global' ? '' : (r.kind === 'clan' ? 'Klan: ' : 'Komanda: ')}${esc(r.name)}</a>`).join('')}</nav>
+        <p class="chat-note">${I.info}<span>Mesajlar 30 dəqiqədən sonra avtomatik silinir. Təhqir və reklam spam qadağandır.</span></p>
+      </div>
+      <div class="chat-list" id="chat-list" aria-live="polite">${listHTML(msgs)}</div>
+      ${banned() ? '<div class="chat-compose"><p class="muted small">Bloklanmış hesab çatda yaza bilməz.</p></div>' : `
+      <form class="chat-compose" data-form="send" autocomplete="off">
+        <input type="text" name="body" maxlength="500" placeholder="${room === 'global' ? 'Hamıya yaz…' : esc(roomName) + ' çatına yaz…'}" aria-label="Mesaj" required>
+        <button class="btn btn-primary" aria-label="Göndər">${svg('<path d="M4 12l16-8-6 16-2.5-6.5z"/>')}<span class="hide-sm">Göndər</span></button>
+      </form>`}
+    </div>`, {
+      del: async (el) => {
+        const { error: e } = await sb.from('messages').delete().eq('id', el.dataset.id);
+        if (e) return toast(errMsg(e), 'bad');
+        removeMsg(Number(el.dataset.id));
+      },
+    }, {
+      send: async (f) => {
+        const body = f.body.value.trim();
+        if (!body) return;
+        const { data, error: e } = await sb.from('messages').insert({ room, body }).select('*').single();
+        if (e) throw e;
+        f.body.value = '';
+        addMsgs([data]);
+        setTimeout(() => f.body.focus(), 0);
+      },
+    });
+    if (!ok) return;
+
+    const chatEl = $('.chat');
+    const fit = () => {
+      const tb = $('#tabbar');
+      const tbH = tb && getComputedStyle(tb).display !== 'none' ? tb.offsetHeight : 0;
+      const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      const top = chatEl.getBoundingClientRect().top + window.scrollY;
+      chatEl.style.height = Math.max(360, vh - top - tbH - 10) + 'px';
+    };
+    document.body.classList.add('chat-mode');
+    fit();
+    window.addEventListener('resize', fit);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', fit);
+    ctx.teardown(() => {
+      document.body.classList.remove('chat-mode');
+      window.removeEventListener('resize', fit);
+      if (window.visualViewport) window.visualViewport.removeEventListener('resize', fit);
+    });
+
+    const list = $('#chat-list');
+    const known = new Set(msgs.map((m) => m.id));
+    let all = msgs.slice();
+    let lastId = msgs.length ? msgs[msgs.length - 1].id : 0;
+    const nearBottom = () => list.scrollHeight - list.scrollTop - list.clientHeight < 120;
+    list.scrollTop = list.scrollHeight;
+
+    function redraw(stick) {
+      list.innerHTML = listHTML(all);
+      if (stick) list.scrollTop = list.scrollHeight;
+    }
+    async function addMsgs(arr) {
+      const fresh = arr.filter((m) => m && m.room === room && !known.has(m.id));
+      if (!fresh.length) return;
+      await chatProfiles(fresh.map((m) => m.user_id));
+      if (!list.isConnected) return;
+      const stick = nearBottom() || fresh.some((m) => m.user_id === uid());
+      fresh.forEach((m) => { known.add(m.id); all.push(m); lastId = Math.max(lastId, m.id); });
+      all.sort((a, b) => a.id - b.id);
+      redraw(stick);
+    }
+    function removeMsg(id) { all = all.filter((m) => m.id !== id); redraw(false); }
+    function expire() {
+      const cut = Date.now() - CHAT_TTL;
+      const before = all.length;
+      all = all.filter((m) => Date.parse(m.created_at) > cut);
+      if (all.length !== before) redraw(false);
+    }
+
+    // Canlı yeniləmə + ehtiyat üçün hər 10 saniyədən bir yoxlama
+    const channel = sb.channel('chat-' + room + '-' + Date.now())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: 'room=eq.' + room }, (pl) => addMsgs([pl.new]))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (pl) => { if (pl.old && known.has(pl.old.id)) removeMsg(pl.old.id); })
+      .subscribe();
+    const poll = setInterval(async () => {
+      if (document.hidden) return;
+      const { data } = await sb.from('messages').select('*').eq('room', room).gt('id', lastId).order('id').limit(100);
+      if (data && data.length) addMsgs(data);
+    }, 10000);
+    const exp = setInterval(expire, 30000);
+    ctx.teardown(() => { clearInterval(poll); clearInterval(exp); sb.removeChannel(channel); });
+    const inp = $('.chat-compose input');
+    if (inp && window.matchMedia('(min-width: 761px)').matches) inp.focus();
   }
 
   // ==================================================================

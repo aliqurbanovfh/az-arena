@@ -105,6 +105,17 @@ Supabase-də **SQL Editor** aç, `supabase/03-m10-klan.sql` faylını yapışdı
 - Tədbir yaradanda kart nömrəsi, **M10 nömrəsi** və ya hər ikisi yazıla bilər. İkisi də olsa, oyunçu ödəniş üsulunu özü seçir, sən isə çekin yanında hansı üsulla ödədiyini görürsən.
 - **Klanı** yalnız icazə verilən adamlar yarada bilər. İcazəni **Admin → İstifadəçilər → Klan icazəsi ver** düyməsi ilə baş admin və `squads` icazəli adminlər verir. Komanda (ekip) yaratmaq hər kəsə açıqdır.
 
+### 9. Çat (bir dəfə)
+
+Supabase-də **SQL Editor** aç, `supabase/04-chat.sql` faylını yapışdır və **Run** bas. Bundan sonra:
+
+- **Çat** bölməsində hamı üçün ümumi çat açılır. Hər klan və komandanın da yalnız öz üzvlərinə görünən ayrıca çatı olur.
+- 30 dəqiqədən köhnə mesajlar görünmür və avtomatik silinir: hər yeni mesajda, bir də hər 30 dəqiqədən bir.
+- Spam qarşısını almaq üçün bir adam 2 saniyədə bir mesajdan çox yaza bilməz.
+- Bloklanmış adam yaza bilmir. `moderation` icazəli adminlər istənilən mesajı silə bilir.
+
+Mesajlar canlı gəlmirsə, **Database → Publications → supabase_realtime** bölməsində `messages` cədvəlinin işarələndiyini yoxla. İşarələnməsə də, çat hər 10 saniyədən bir yenilənir.
+
 ---
 
 ## Necə işləyir
