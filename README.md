@@ -91,6 +91,13 @@ select id, 'super_admin' from public.profiles where username = 'SENIN_ADIN';
    - yuxarıdakı elan zolağı
    - scream limitləri
 
+### 7. Şəkil funksiyalarını aç (bir dəfə)
+
+Supabase-də **SQL Editor** aç, `supabase/02-dizayn.sql` faylının hamısını yapışdır və **Run** bas. Bundan sonra:
+
+- **Admin → Ayarlar → Qarşılama şəkilləri** bölməsindən ana səhifəyə 5-ə qədər öz PUBG ekran şəklini yükləyə bilərsən.
+- Tədbir yaradanda **örtük şəkli** əlavə etmək olar. Şəkil olmasa, xəritəyə uyğun illüstrasiya göstərilir.
+
 ---
 
 ## Necə işləyir

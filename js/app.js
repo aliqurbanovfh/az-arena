@@ -27,6 +27,12 @@
     info: svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>'),
     flag: svg('<path d="M5.5 21V4.5"/><path d="M5.5 4.5h11l-2 4 2 4h-11"/>'),
     plus: svg('<path d="M12 5v14M5 12h14"/>'),
+    chart: svg('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
+    cash: svg('<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/>'),
+    shield: svg('<path d="M12 3l7.5 3v6c0 4.5-3.2 7.6-7.5 9-4.3-1.4-7.5-4.5-7.5-9V6z"/>'),
+    list: svg('<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>'),
+    gear: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
+    trophy: svg('<path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4c0 3 1.5 4.5 3.5 4.5M17 6h3c0 3-1.5 4.5-3.5 4.5M12 14v4M8 20h8"/>'),
     image: svg('<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="m20.5 16-5-5-8 8.5"/>'),
   };
 
@@ -96,6 +102,7 @@
       [/Failed to fetch|NetworkError|Load failed/i, 'İnternet bağlantısını yoxlayın'],
       [/Database error saving new user/i, 'Qeydiyyat alınmadı: istifadəçi adı tutulmuş ola bilər'],
       [/JWT expired/i, 'Sessiya bitib, yenidən daxil olun'],
+      [/cover_url|hero_images|Bucket not found/i, 'Şəkil funksiyası hələ aktiv deyil: Supabase-də supabase/02-dizayn.sql faylını işlədin'],
       [/exceeded the maximum allowed size|Payload too large/i, 'Şəkil çox böyükdür'],
     ];
     for (const [re, t] of map) if (re.test(m)) return t;
@@ -275,6 +282,14 @@
     if (error) throw error;
     return path;
   }
+  async function uploadMedia(file, folder, max = 1920) {
+    const blob = await compressImage(file, max, 0.85);
+    if (blob.size > 5 * 1024 * 1024) throw new Error('Şəkil çox böyükdür');
+    const path = `${uid()}/${folder}/${Date.now()}.jpg`;
+    const { error } = await sb.storage.from('media').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+    if (error) throw error;
+    return sb.storage.from('media').getPublicUrl(path).data.publicUrl;
+  }
   async function signedThumbs(entries) {
     const paths = entries.map((e) => e.receipt_path).filter(Boolean);
     if (!paths.length) return {};
@@ -291,7 +306,7 @@
 
   function paint(ctx, html, acts = {}, frms = {}) {
     if (ctx.seq !== renderSeq) return false;
-    app.innerHTML = html;
+    app.innerHTML = ctx.wrap ? ctx.wrap(html) : html;
     actions = acts; forms = frms;
     tick();
     return true;
@@ -486,65 +501,267 @@
     </div>`;
   }
 
-  function eventRow(e) {
+  // ------------------------------------------------------------------
+  // İllüstrasiyalar: hər xəritə üçün öz mənzərəsi (SVG, şəkilsiz)
+  // ------------------------------------------------------------------
+  let artSeq = 0;
+  function rng(seed) {
+    let h = 2166136261;
+    for (const c of String(seed || 'az')) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+    return () => { h += 0x6D2B79F5; let t = h; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  function ridge(r, base, amp) {
+    const f1 = 0.004 + r() * 0.006, f2 = 0.012 + r() * 0.014, p1 = r() * 6.28, p2 = r() * 6.28;
+    return (x) => base + amp * (0.65 * Math.sin(x * f1 + p1) + 0.35 * Math.sin(x * f2 + p2));
+  }
+  function ridgePath(fn, W, H, step = 16) {
+    let d = `M0 ${H} L0 ${fn(0).toFixed(1)}`;
+    for (let x = step; x <= W; x += step) d += ` L${x} ${fn(x).toFixed(1)}`;
+    return d + ` L${W} ${H} Z`;
+  }
+  const pine = (x, y, s, c) => `<path d="M${x} ${y - s * 3.2}L${x + s * 0.9} ${y - s * 1.4}L${x + s * 0.5} ${y - s * 1.4}L${x + s * 1.2} ${y}L${x - s * 1.2} ${y}L${x - s * 0.5} ${y - s * 1.4}L${x - s * 0.9} ${y - s * 1.4}Z" fill="${c}"/>`;
+  const palm = (x, y, s, c) => `<g fill="none" stroke="${c}" stroke-linecap="round"><path d="M${x} ${y}Q${x + s * 0.6} ${y - s * 1.8} ${x + s * 0.2} ${y - s * 3.4}" stroke-width="${s * 0.28}"/>` +
+    [[-2, -0.4], [-1.6, 0.6], [1.8, -0.2], [1.5, 0.8], [0.2, -1.2]].map(([dx, dy]) => `<path d="M${x + s * 0.2} ${y - s * 3.4}q${dx * s * 0.6} ${(dy - 0.6) * s} ${dx * s} ${dy * s + s * 0.6}" stroke-width="${s * 0.22}"/>`).join('') + '</g>';
+  const cactus = (x, y, s, c) => `<g fill="${c}"><rect x="${x - s * 0.25}" y="${y - s * 2.6}" width="${s * 0.5}" height="${s * 2.6}" rx="${s * 0.25}"/><rect x="${x - s * 0.95}" y="${y - s * 1.9}" width="${s * 0.38}" height="${s}" rx="${s * 0.19}"/><rect x="${x - s * 0.95}" y="${y - s * 1.1}" width="${s * 0.8}" height="${s * 0.34}" rx="${s * 0.17}"/><rect x="${x + s * 0.57}" y="${y - s * 2.2}" width="${s * 0.38}" height="${s * 0.9}" rx="${s * 0.19}"/><rect x="${x + 0.1 * s}" y="${y - s * 1.6}" width="${s * 0.85}" height="${s * 0.34}" rx="${s * 0.17}"/></g>`;
+  const house = (x, y, s, c) => `<path d="M${x - s * 1.4} ${y}V${y - s * 1.3}L${x} ${y - s * 2.3}L${x + s * 1.4} ${y - s * 1.3}V${y}Z" fill="${c}"/>`;
+  const tower = (x, y, s, c) => `<g fill="${c}"><rect x="${x - s * 0.9}" y="${y - s * 4.6}" width="${s * 1.8}" height="${s * 1.1}" rx="${s * 0.3}"/><path d="M${x - s * 0.7} ${y}L${x - s * 0.3} ${y - s * 3.5}H${x + s * 0.3}L${x + s * 0.7} ${y}Z"/></g>`;
+  function chute(x, y, s, c) {
+    return `<g transform="translate(${x} ${y}) scale(${s})"><path d="M-14 0C-14-10-7-15 0-15S14-10 14 0Q10.5-3 7 0Q3.5-3 0 0Q-3.5-3-7 0Q-10.5-3-14 0Z" fill="${c}"/>
+      <path d="M-7-14.2C-6-9-6.5-4-7 0M7-14.2C6-9 6.5-4 7 0" stroke="rgba(0,0,0,.18)" stroke-width="1.2" fill="none"/>
+      <path d="M-14 0L-1.5 17M14 0L1.5 17M-7 0L-1 17M7 0L1 17" stroke="rgba(20,20,20,.55)" stroke-width=".7"/>
+      <circle cy="18" r="2.2" fill="#14181a"/><rect x="-2" y="19.5" width="4" height="7" rx="1.6" fill="#14181a"/></g>`;
+  }
+  function crate(x, y, s) {
+    return `<g transform="translate(${x} ${y}) scale(${s})"><rect x="-16" y="-16" width="32" height="32" rx="2" fill="#2F6FA8"/><rect x="-16" y="-16" width="32" height="32" rx="2" fill="none" stroke="#1B4669" stroke-width="2"/>
+      <path d="M-16-3H16M-16 5H16M-3-16V16M5-16V16" stroke="#E8E2D0" stroke-width="2.4"/><rect x="-16" y="-16" width="32" height="5" fill="#235985"/></g>`;
+  }
+  function plane(x, y, s, c) {
+    return `<g transform="translate(${x} ${y}) scale(${s})" fill="${c}"><path d="M-46 0C-40-4 30-5 44-2C48-1 48 2 44 3C30 5-40 4-46 0Z"/><path d="M-6-2L-20-26H-12L14-2ZM-6 2L-20 26H-12L14 2Z"/><path d="M-40-1L-48-14H-42L-30-1ZM-40 1L-48 14H-42L-30 1Z"/></g>`;
+  }
+  function smoke(x, y, s, idf) {
+    let out = '';
+    for (let i = 0; i < 7; i++) out += `<circle cx="${x + Math.sin(i * 1.3) * 10 * s + i * 6 * s}" cy="${y - i * 22 * s}" r="${(12 + i * 4) * s}" fill="#FF4A30" opacity="${0.55 - i * 0.065}"/>`;
+    return `<g filter="url(#${idf})">${out}</g>`;
+  }
+
+  const MAP_THEMES = {
+    erangel: { sky: ['#20304A', '#B9634A', '#F2B56A'], sun: '#FFD27D', far: '#5B6C5A', mid: '#3B4E38', near: '#1E2A1C', deco: 'pine', extra: ['house', 'tower'] },
+    miramar: { sky: ['#3A2B47', '#D9693F', '#FFC77E'], sun: '#FFE09A', far: '#B9774A', mid: '#8B5131', near: '#4E2B1A', deco: 'cactus', extra: ['house'] },
+    sanhok: { sky: ['#0F3138', '#2F7F72', '#BFE0A0'], sun: '#F3F7C8', far: '#2F6B4F', mid: '#1E4E39', near: '#0F2D21', deco: 'palm' },
+    vikendi: { sky: ['#1A2742', '#5E7FB2', '#DCE7F4'], sun: '#FFFFFF', far: '#B6C8DE', mid: '#8EA6C2', near: '#DCE6F2', deco: 'pine', decoColor: '#2E4256' },
+    livik: { sky: ['#183150', '#3F86B0', '#F0D49A'], sun: '#FFE7A8', far: '#467F6C', mid: '#2C5D4E', near: '#173A2F', deco: 'pine', water: '#3E7EA6' },
+    karakin: { sky: ['#33283C', '#C77A4C', '#F5D3A0'], sun: '#FFF0C2', far: '#A0805E', mid: '#74563D', near: '#3F2D20', deco: 'cactus' },
+    rondo: { sky: ['#2A2140', '#B4524F', '#F1B07A'], sun: '#FFD9A0', far: '#7A6A52', mid: '#5A4A38', near: '#2B2219', deco: 'house' },
+    city: { sky: ['#0C1022', '#2A1C48', '#7A2E58'], sun: '#FF8A6B', city: true },
+  };
+  function themeFor(map, mode) {
+    const m = String(map || '').toLowerCase();
+    if (/tdm|arena/i.test(m) || /tdm|arena/i.test(mode || '')) return MAP_THEMES.city;
+    if (m.startsWith('nusa')) return MAP_THEMES.sanhok;
+    return MAP_THEMES[m] || MAP_THEMES.erangel;
+  }
+
+  // Mənzərə: W×H ölçüsündə SVG. opts: { chutes, plane, crate, smoke, zone }
+  function scene(seed, th, W, H, opts = {}) {
+    const r = rng(seed);
+    const id = 'a' + (++artSeq);
+    let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMax slice" aria-hidden="true"><defs>
+      <linearGradient id="${id}s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${th.sky[0]}"/><stop offset=".62" stop-color="${th.sky[1]}"/><stop offset="1" stop-color="${th.sky[2]}"/></linearGradient>
+      <radialGradient id="${id}g"><stop offset="0" stop-color="${th.sun}" stop-opacity=".9"/><stop offset=".35" stop-color="${th.sun}" stop-opacity=".35"/><stop offset="1" stop-color="${th.sun}" stop-opacity="0"/></radialGradient>
+      <filter id="${id}b" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${W / 160}"/></filter></defs>
+      <rect width="${W}" height="${H}" fill="url(#${id}s)"/>`;
+    const sx = W * (0.55 + r() * 0.3), sy = H * 0.66;
+    s += `<circle cx="${sx}" cy="${sy}" r="${H * 0.5}" fill="url(#${id}g)"/><circle cx="${sx}" cy="${sy}" r="${H * 0.09}" fill="${th.sun}" opacity=".95"/>`;
+    for (let i = 0; i < 4; i++) s += `<ellipse cx="${r() * W}" cy="${H * (0.12 + r() * 0.3)}" rx="${W * (0.08 + r() * 0.1)}" ry="${H * 0.018}" fill="#fff" opacity="${0.06 + r() * 0.08}"/>`;
+    if (opts.zone) s += `<circle cx="${W * 0.5}" cy="${H * 1.15}" r="${H * 0.95}" fill="none" stroke="#4FC3F7" stroke-width="${W / 400}" stroke-dasharray="${W / 90} ${W / 110}" opacity=".45"/>`;
+    if (opts.plane) {
+      const py = H * (0.12 + r() * 0.08), px = W * (0.6 + r() * 0.2);
+      s += `<path d="M${-W * 0.05} ${py + H * 0.05} L${px - W * 0.03} ${py}" stroke="#fff" stroke-opacity=".22" stroke-width="${H / 160}" stroke-linecap="round"/>` + plane(px, py, W / 1400, 'rgba(15,18,22,.85)');
+    }
+    if (th.city) {
+      for (let layer = 0; layer < 2; layer++) {
+        let x = 0; const col = layer ? '#0A0D16' : '#1B1631';
+        while (x < W) {
+          const bw = W * (0.04 + r() * 0.06), bh = H * (layer ? 0.18 + r() * 0.3 : 0.3 + r() * 0.3);
+          s += `<rect x="${x}" y="${H - bh}" width="${bw + 1}" height="${bh}" fill="${col}"/>`;
+          if (layer) for (let wy = H - bh + H * 0.03; wy < H - H * 0.03; wy += H * 0.05) for (let wx = x + bw * 0.15; wx < x + bw - bw * 0.2; wx += bw * 0.25) if (r() > 0.55) s += `<rect x="${wx}" y="${wy}" width="${bw * 0.1}" height="${H * 0.018}" fill="#FFB21E" opacity="${0.4 + r() * 0.5}"/>`;
+          x += bw;
+        }
+      }
+    } else {
+      const far = ridge(r, H * 0.62, H * 0.07), mid = ridge(r, H * 0.74, H * 0.06), near = ridge(r, H * 0.88, H * 0.05);
+      s += `<path d="${ridgePath(far, W, H, W / 80)}" fill="${th.far}" opacity=".9"/>`;
+      if (th.water) s += `<rect x="0" y="${H * 0.76}" width="${W}" height="${H * 0.08}" fill="${th.water}" opacity=".8"/><rect x="${W * 0.1}" y="${H * 0.785}" width="${W * 0.3}" height="${H * 0.006}" fill="#fff" opacity=".35"/>`;
+      s += `<path d="${ridgePath(mid, W, H, W / 80)}" fill="${th.mid}"/>`;
+      const dc = th.decoColor || th.near;
+      const mk = { pine, palm, cactus, house }[th.deco];
+      const n = Math.round(W / 60);
+      for (let i = 0; i < n; i++) {
+        const x = r() * W; const sz = H * (0.02 + r() * 0.02);
+        if (r() > 0.4) s += mk(x, mid(x) + 2, sz, th.mid);
+      }
+      if (th.extra && th.extra.includes('tower')) { const tx = W * (0.15 + r() * 0.2); s += tower(tx, mid(tx) + 2, H * 0.03, th.mid); }
+      s += `<path d="${ridgePath(near, W, H, W / 80)}" fill="${th.near}"/>`;
+      for (let i = 0; i < n; i++) {
+        const x = r() * W; const sz = H * (0.035 + r() * 0.035);
+        if (r() > 0.45) s += mk(x, near(x) + 3, sz, dc);
+      }
+      if (th.extra && th.extra.includes('house')) { const hx = W * (0.55 + r() * 0.3); s += house(hx, near(hx) + 3, H * 0.035, dc); }
+      if (opts.crate) {
+        const cx = W * (0.72 + r() * 0.12), cy = near(cx) - H * 0.02;
+        if (opts.smoke) s += smoke(cx - W * 0.012, cy - H * 0.04, H / 500, id + 'b');
+        s += crate(cx, cy, H / 600);
+      }
+    }
+    if (opts.chutes) {
+      const cols = ['#FFB21E', '#FF5A3C', '#F3EEE3', '#4FC3F7', '#FFB21E'];
+      let g = '';
+      for (let i = 0; i < opts.chutes; i++) {
+        const x0 = opts.xMin ?? 0.08; const cx = W * (x0 + r() * (0.92 - x0)), cy = H * (0.18 + r() * 0.32), sc = (H / 260) * (0.5 + r() * 0.7);
+        g += chute(cx, cy, sc, cols[i % cols.length]);
+      }
+      if (opts.airdrop) {
+        const ax = W * (opts.xMin ? 0.68 : 0.3), ay = H * 0.22, sc = H / 300;
+        g += `<g transform="translate(${ax} ${ay})">${chute(0, 0, sc * 1.5, '#FF5A3C')}${crate(0, 30 * sc * 1.5, sc * 0.55)}</g>`;
+      }
+      s += `<g class="${opts.animate ? 'chutes' : ''}">${g}</g>`;
+    }
+    return s + '</svg>';
+  }
+
+  const eventArt = (e, W = 640, H = 320) => e.cover_url && /^https:\/\//.test(e.cover_url)
+    ? `<img src="${esc(e.cover_url)}" alt="" loading="lazy">`
+    : scene(e.id, themeFor(e.map, e.mode), W, H, { chutes: e.kind === 'tournament' ? 4 : 2, plane: e.kind === 'tournament', crate: e.kind === 'tournament', smoke: e.kind === 'tournament' });
+
+  // Kiçik illüstrasiyalı ikonlar (bölmələr üçün)
+  const ILL = {
+    scream: `<svg class="f-ill" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="rgba(79,195,247,.14)"/>${chute(32, 30, 1.25, '#4FC3F7')}</svg>`,
+    tournament: `<svg class="f-ill" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="rgba(255,178,30,.15)"/><path d="M21 16h22v8c0 7-5 12-11 12s-11-5-11-12z" fill="#FFB21E"/><path d="M21 19h-6c0 6 3 9 7 9M43 19h6c0 6-3 9-7 9" stroke="#FFB21E" stroke-width="3" fill="none"/><rect x="29" y="35" width="6" height="8" fill="#E39A10"/><rect x="22" y="43" width="20" height="6" rx="2" fill="#FFB21E"/></svg>`,
+    clan: `<svg class="f-ill" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="rgba(111,208,140,.14)"/><path d="M32 12l17 6v13c0 11-7 18-17 22-10-4-17-11-17-22V18z" fill="#6FD08C"/><path d="M32 20l3 7h7l-6 4 2 8-6-5-6 5 2-8-6-4h7z" fill="#0F2D1A"/></svg>`,
+    listing: `<svg class="f-ill" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="rgba(255,90,60,.15)"/><path d="M14 28v9h7l16 9V19l-16 9z" fill="#FF5A3C"/><path d="M43 26c3 3 3 9 0 12M47 22c6 6 6 14 0 20" stroke="#FF5A3C" stroke-width="3" fill="none" stroke-linecap="round"/></svg>`,
+  };
+
+  // Avatar və klan emblemi (baş hərflərdən, rəng adın özündən)
+  const AV_COLORS = ['#FFB21E', '#4FC3F7', '#6FD08C', '#FF7A5C', '#C59BFF', '#FFD166', '#5FD4C4'];
+  const avColor = (s) => { let h = 0; for (const c of String(s || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0; return AV_COLORS[h % AV_COLORS.length]; };
+  const initials = (s) => (String(s || '?').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 2) || '?').toUpperCase();
+  const avatar = (p, cls = '') => p ? `<span class="avatar ${cls}" style="background:${avColor(p.username || p.nick)}" aria-hidden="true">${esc(initials(p.nick || p.username))}</span>` : '<span class="avatar" style="background:#3A4950" aria-hidden="true">?</span>';
+  const emblem = (q, cls = '') => `<span class="emblem ${cls}" style="background:${avColor(q.name)}" aria-hidden="true">${esc((q.tag || initials(q.name)).slice(0, 4))}</span>`;
+
+  function eventCard(e) {
     const pct = Math.min(100, Math.round((e.taken / e.slots) * 100));
-    const meta = [e.mode, e.map].filter(Boolean).join(', ');
+    const free = Number(e.entry_fee) === 0;
     const host = hostName(e);
-    return `<a class="board-row" href="#/event/${e.id}">
-      <div class="br-time"><span class="br-hm">${fmtHM(e.starts_at)}</span><span class="br-day">${fmtDay(e.starts_at)}</span></div>
-      <div class="br-main"><div class="row" style="gap:6px">${kindChip(e.kind)}${statusChip(e.status)}</div>
-        <h3>${esc(e.title)}</h3><p>${esc(meta)}${meta && host ? '. ' : ''}${host ? 'Təşkilatçı: ' + esc(host) : ''}</p></div>
-      <div class="br-side"><span class="fee ${Number(e.entry_fee) === 0 ? 'free' : ''}">${money(e.entry_fee)}</span>
-        <span class="slots"><b>${e.taken}</b>/${e.slots} yer</span>
-        <div class="bar ${e.taken >= e.slots ? 'full' : ''}"><i style="width:${pct}%"></i></div></div>
+    return `<a class="ev-card" href="#/event/${e.id}">
+      <div class="ev-cover">${eventArt(e)}
+        <div class="ev-tl">${kindChip(e.kind)}${statusChip(e.status)}</div>
+        <div class="ev-tr"><span class="ev-price ${free ? 'free' : ''}">${money(e.entry_fee)}</span></div>
+        <div class="ev-bl"><span class="ev-time">${fmtHM(e.starts_at)}</span><span class="ev-day">${fmtDay(e.starts_at)}</span></div>
+      </div>
+      <div class="ev-body">
+        <h3>${esc(e.title)}</h3>
+        <p class="ev-meta">${esc([e.mode, e.map].filter(Boolean).join(', '))}${host ? (e.mode || e.map ? '. ' : '') + 'Təşkilatçı: ' + esc(host) : ''}</p>
+        ${e.prize ? `<p class="small" style="color:var(--gold)">Mükafat: ${esc(e.prize)}</p>` : ''}
+        <div class="ev-foot"><div class="bar"><i style="width:${pct}%"></i></div><span class="slots"><b>${e.taken}</b>/${e.slots} yer</span></div>
+      </div>
     </a>`;
+  }
+
+  function pageHeadHTML(title, sub, seed, theme, right = '') {
+    return `<header class="page-head"><div class="ph-art">${scene(seed, MAP_THEMES[theme] || MAP_THEMES.erangel, 1400, 300, { chutes: 3 })}</div>
+      <div><h1>${esc(title)}</h1>${sub ? `<p>${esc(sub)}</p>` : ''}</div>${right ? `<div class="row">${right}</div>` : ''}</header>`;
   }
 
   // ==================================================================
   // ANA SƏHİFƏ
   // ==================================================================
+  let heroTimer = null;
   async function pageHome(ctx) {
     const since = new Date(Date.now() - 3 * 3600e3).toISOString();
-    const { data, error } = await sb.from('events').select(EV_SEL).in('status', ['open', 'closed'])
-      .gte('starts_at', since).order('starts_at').limit(15);
-    if (error) throw error;
+    const cnt = (q) => q.then((r) => r.count || 0, () => 0);
+    const [evR, clansR, nPlayers, nEvents, nClans] = await Promise.all([
+      sb.from('events').select(EV_SEL).in('status', ['open', 'closed']).gte('starts_at', since).order('starts_at').limit(13),
+      sb.from('squads').select('*').eq('kind', 'clan').order('members_count', { ascending: false }).limit(8),
+      cnt(sb.from('profiles').select('id', { count: 'exact', head: true })),
+      cnt(sb.from('events').select('id', { count: 'exact', head: true }).in('status', ['open', 'closed']).gte('starts_at', since)),
+      cnt(sb.from('squads').select('id', { count: 'exact', head: true })),
+    ]);
+    if (evR.error) throw evR.error;
+    const data = evR.data || [];
+    const clans = clansR.data || [];
     const now = Date.now();
     const upcoming = data.filter((e) => Date.parse(e.starts_at) > now);
     const next = upcoming.find((e) => e.status === 'open' && e.taken < e.slots) || upcoming[0];
-    const rest = data.filter((e) => e !== next);
-    const createBtn = uid() && !banned() ? '<a class="btn" href="#/event/new">Scream yarat</a>' : '';
+    const rest = data.filter((e) => e !== next).slice(0, 6);
+    const photos = (S.settings.hero_images || []).filter((u) => /^https:\/\//.test(u));
+    const nick = S.profile && S.profile.nick;
 
-    const hero = next ? `<section class="hero">
-        <div>
-          <p class="hero-kicker">Növbəti tədbir: ${fmtFull(next.starts_at)}</p>
-          <h1><a href="#/event/${next.id}">${esc(next.title)}</a></h1>
-          <div class="row">${kindChip(next.kind)}<span class="muted">${esc([next.mode, next.map].filter(Boolean).join(', '))}</span></div>
-          <dl class="hero-meta">
-            <div><dt>Giriş haqqı</dt><dd style="color:${Number(next.entry_fee) ? 'var(--flare)' : 'var(--ok)'}">${money(next.entry_fee)}</dd></div>
-            <div><dt>Yerlər</dt><dd class="num">${next.taken}/${next.slots}</dd></div>
-            ${next.prize ? `<div><dt>Mükafat</dt><dd>${esc(next.prize)}</dd></div>` : ''}
-          </dl>
-          <div class="row"><a class="btn btn-primary" href="#/event/${next.id}">Qoşul</a>${createBtn}</div>
+    const hero = `<section class="landing-hero">
+      <div class="lh-scene">${scene('hero-az', MAP_THEMES.erangel, 1600, 900, { chutes: 5, xMin: 0.5, airdrop: true, plane: true, crate: true, smoke: true, zone: true, animate: true })}</div>
+      ${photos.map((u, i) => `<div class="lh-photo ${i === 0 ? 'on' : ''}" style="background-image:url('${esc(u)}')"></div>`).join('')}
+      <div class="lh-content">
+        <span class="lh-kicker"><i></i>${nick ? 'Xoş gəldin, ' + esc(nick) : (nEvents ? nEvents + ' tədbir qeydiyyat gözləyir' : 'Azərbaycan PUBG Mobile icması')}</span>
+        <h1 class="lh-title">Meydana tullan. Qələbəni qazan.</h1>
+        <p class="lh-sub">Hər axşam screamlər, mükafatlı turnirlər, klanlar və komandalar: Azərbaycanın PUBG Mobile oyunçuları bir yerdə.</p>
+        <div class="lh-cta">
+          ${uid() ? `<a class="btn btn-primary btn-lg" href="#/events">Tədbirlərə bax</a>${banned() ? '' : '<a class="btn btn-glass btn-lg" href="#/event/new">Scream yarat</a>'}`
+            : '<a class="btn btn-primary btn-lg" href="#/register">Qeydiyyatdan keç</a><a class="btn btn-glass btn-lg" href="#/events">Tədbirlərə bax</a>'}
         </div>
-        ${zoneHTML(next)}
-      </section>`
-      : `<section class="hero hero-empty"><div class="stack">
-          <p class="hero-kicker">${esc(SITE)}</p>
-          <h1>Hələ açıq tədbir yoxdur</h1>
-          <p class="muted">Dostlarını topla və ilk scream-i sən aç: otaq kodu təsdiqlənən oyunçulara özü açılacaq.</p>
-          <div class="row">${uid() ? '<a class="btn btn-primary" href="#/event/new">Scream yarat</a>' : '<a class="btn btn-primary" href="#/register">Qeydiyyatdan keç</a>'}</div>
-        </div></section>`;
+        <div class="lh-stats">
+          <div><b>${nPlayers}</b><span>oyunçu</span></div>
+          <div><b>${nEvents}</b><span>aktiv tədbir</span></div>
+          <div><b>${nClans}</b><span>klan və komanda</span></div>
+        </div>
+      </div>
+    </section>`;
 
-    const steps = uid() ? '' : `<section><h2 style="margin-bottom:12px">Necə işləyir</h2><div class="steps">
-        <div class="step"><h3>Qeydiyyatdan keç</h3><p>İstifadəçi adı və şifrə kifayətdir, e-poçt lazım deyil.</p></div>
-        <div class="step"><h3>Ödənişi et, çeki yüklə</h3><p>Giriş haqqını tədbirin kartına köçür və çekin şəklini sayta yüklə.</p></div>
-        <div class="step"><h3>Otaq kodunu al</h3><p>Təsdiqdən sonra otaq ID və şifrəsi başlamazdan bir az əvvəl burada açılır.</p></div>
+    const nextCard = next ? `<section class="next-card">
+        <div class="nc-art">${eventArt(next, 460, 340)}</div>
+        <div class="nc-body">
+          <span class="nc-label">Növbəti döyüş: ${fmtFull(next.starts_at)}</span>
+          <h3><a href="#/event/${next.id}">${esc(next.title)}</a></h3>
+          <div class="row">${kindChip(next.kind)}<span class="muted small">${esc([next.mode, next.map].filter(Boolean).join(', '))}</span></div>
+          <div class="row" style="gap:18px;margin-top:4px">
+            <span><span class="dim small">Giriş</span> <b style="color:${Number(next.entry_fee) ? 'var(--gold)' : 'var(--ok)'}">${money(next.entry_fee)}</b></span>
+            <span><span class="dim small">Yerlər</span> <b class="num">${next.taken}/${next.slots}</b></span>
+            ${next.prize ? `<span><span class="dim small">Mükafat</span> <b>${esc(next.prize)}</b></span>` : ''}
+          </div>
+        </div>
+        <div class="nc-side">${zoneHTML(next)}<a class="btn btn-primary" href="#/event/${next.id}">Qoşul</a></div>
+      </section>` : '';
+
+    const features = `<section>
+      <div class="section-head"><div><h2>Burada nə var</h2></div></div>
+      <div class="features">
+        <a class="feature" href="#/events?t=scream">${ILL.scream}<h3>Screamlər</h3><p>Hər axşam ucuz screamlər. Qoşul, otaq kodu vaxtında özü gəlsin.</p></a>
+        <a class="feature" href="#/events?t=tournament">${ILL.tournament}<h3>Turnirlər</h3><p>Mükafat fondlu böyük turnirlər və nəticələr.</p></a>
+        <a class="feature" href="#/squads">${ILL.clan}<h3>Klanlar</h3><p>Klanını və komandanı qur, üzv qəbul et.</p></a>
+        <a class="feature" href="#/listings">${ILL.listing}<h3>Elanlar</h3><p>Komanda axtar, oyunçu tap, elan yerləşdir.</p></a>
       </div></section>`;
 
-    paint(ctx, `<div class="stack-lg">${hero}${steps}
-      <section><div class="section-head"><h2>Yaxın tədbirlər</h2><a href="#/events">Hamısına bax</a></div>
-        ${rest.length ? `<div class="board">${rest.map(eventRow).join('')}</div>` : '<div class="empty">Başqa yaxın tədbir yoxdur.</div>'}
-      </section></div>`);
+    const events = `<section><div class="section-head"><div><h2>Yaxın tədbirlər</h2></div><a href="#/events">Hamısına bax</a></div>
+      ${rest.length ? `<div class="ev-cards">${rest.map(eventCard).join('')}</div>`
+        : `<div class="empty">${next ? 'Başqa yaxın tədbir yoxdur.' : 'Hələ açıq tədbir yoxdur.'}${uid() && !banned() ? '<br><a class="btn btn-primary" href="#/event/new">Scream yarat</a>' : ''}</div>`}</section>`;
+
+    const clanSec = clans.length ? `<section><div class="section-head"><div><h2>Ən böyük klanlar</h2></div><a href="#/squads">Hamısı</a></div>
+      <div class="clan-strip">${clans.map((q) => `<a class="squad-card" href="#/squad/${q.id}">${emblem(q)}<div class="sc-body"><h3>${esc(q.name)}</h3>
+        <p class="small muted">${q.members_count} üzv${q.recruiting ? ', üzv qəbul edir' : ''}</p></div></a>`).join('')}</div></section>` : '';
+
+    const cta = uid() ? '' : `<section class="cta-band"><div class="cb-art">${scene('cta', MAP_THEMES.miramar, 1400, 260, { chutes: 4 })}</div>
+      <div><h2>Döyüşə hazırsan?</h2><p>Qeydiyyat bir dəqiqə çəkir. E-poçt lazım deyil.</p></div>
+      <a class="btn btn-primary btn-lg" href="#/register">Qeydiyyatdan keç</a></section>`;
+
+    paint(ctx, `<div class="stack-lg">${hero}${nextCard}${features}${events}${clanSec}${cta}</div>`);
+
+    clearInterval(heroTimer);
+    if (photos.length > 1) {
+      let i = 0;
+      heroTimer = setInterval(() => {
+        const els = $$('.lh-photo');
+        if (!els.length) return clearInterval(heroTimer);
+        els[i % els.length].classList.remove('on'); i++; els[i % els.length].classList.add('on');
+      }, 6000);
+    }
   }
 
   // ==================================================================
@@ -565,9 +782,9 @@
     const tabs = [['all', 'Hamısı'], ['scream', 'Screamlər'], ['tournament', 'Turnirlər'], ['past', 'Keçmiş']];
     const cta = uid() ? (banned() ? '' : '<a class="btn btn-primary" href="#/event/new">' + I.plus + 'Tədbir yarat</a>') : '<a class="btn" href="#/login?next=event/new">Tədbir yarat</a>';
     paint(ctx, `<div class="stack">
-      <div class="row-between"><h1>Tədbirlər</h1>${cta}</div>
+      ${pageHeadHTML('Tədbirlər', 'Screamlər və turnirlər. Qoşul, ödənişi et, otaq kodu vaxtında açılsın.', 'events-' + tab, tab === 'tournament' ? 'miramar' : 'erangel', cta)}
       <nav class="tabs" aria-label="Filtr">${tabs.map(([k, t]) => `<a href="#/events${k === 'all' ? '' : '?t=' + k}" class="${tab === k ? 'on' : ''}">${t}</a>`).join('')}</nav>
-      ${data.length ? `<div class="board">${data.map(eventRow).join('')}</div>`
+      ${data.length ? `<div class="ev-cards">${data.map(eventCard).join('')}</div>`
         : `<div class="empty">${tab === 'past' ? 'Keçmiş tədbir yoxdur.' : 'Hazırda açıq tədbir yoxdur.'}${uid() && !banned() && tab !== 'past' ? '<br><a class="btn btn-primary" href="#/event/new">Scream yarat</a>' : ''}</div>`}
     </div>`);
   }
@@ -675,7 +892,7 @@
       const rej = all.filter((e) => e.status === 'rejected');
       const entryItem = (e) => `<div class="list-item">
           ${e.receipt_path && thumbs[e.receipt_path] ? `<img class="receipt-thumb" src="${esc(thumbs[e.receipt_path])}" alt="Çek" data-act="receipt" data-id="${e.id}">` : ''}
-          <div class="grow"><div class="title">${userLink(e.profile)}</div>
+          ${avatar(e.profile)}<div class="grow"><div class="title">${userLink(e.profile)}</div>
             <div class="small muted">Oyunda: ${esc(e.pubg_nick || '—')}, ID ${esc(e.pubg_id || '—')}${e.team_name ? ', komanda: ' + esc(e.team_name) : ''}. ${fmtAgo(e.created_at)}</div>
             ${e.reject_reason ? `<div class="small" style="color:var(--bad)">Səbəb: ${esc(e.reject_reason)}</div>` : ''}</div>
           <div class="row">
@@ -721,12 +938,12 @@
     ].filter(([, v]) => v);
 
     const html = `<div class="stack-lg">
-      <div class="ev-head"><div>
+      <div class="ev-banner"><div class="ev-banner-art">${eventArt(ev, 1400, 420)}</div><div class="ev-banner-in"><div>
         <a class="back" href="#/events">Bütün tədbirlər</a>
         <div class="row" style="gap:6px">${kindChip(ev.kind)}${statusChip(ev.status)}</div>
         <h1>${esc(ev.title)}</h1>
-        ${ev.creator ? `<p class="muted small">Yaradan: ${userLink(ev.creator)}</p>` : ''}
-      </div>${ev.status === 'cancelled' ? '' : zoneHTML(ev, 'zone-sm')}</div>
+        ${ev.creator ? `<p class="small" style="color:#E2DCCF">Yaradan: ${userLink(ev.creator)}</p>` : ''}
+      </div>${ev.status === 'cancelled' ? '' : zoneHTML(ev, 'zone-sm')}</div></div>
       <dl class="facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
       <div class="ev-grid">
         <div class="stack-lg">
@@ -868,6 +1085,11 @@
         </div>
         <div class="field"><label for="e-prize">Mükafat <span class="dim">(istəyə görə)</span></label><input id="e-prize" name="prize" type="text" maxlength="200" value="${esc(v.prize || '')}" placeholder="Məs: 1-ci yer 30 ₼, 2-ci yer 15 ₼"></div>
         <div class="field"><label for="e-org">Təşkilatçı kimi göstərilən ad <span class="dim">(istəyə görə)</span></label><input id="e-org" name="org_name" type="text" maxlength="40" value="${esc(v.org_name || '')}"><span class="hint">Boş qalsa, sənin nikin göstəriləcək.</span></div>
+        <div class="field"><span class="label">Örtük şəkli <span class="dim">(istəyə görə)</span></span>
+          <label class="file-pick">${I.image}<span data-fname>${v.cover_url ? 'Yeni şəkil seç' : 'Şəkil seç (məs: oyundan ekran şəkli)'}</span><input type="file" name="cover" accept="image/*" data-preview="e-cprev"></label>
+          <img id="e-cprev" class="preview-img ${v.cover_url ? '' : 'hidden'}" src="${esc(v.cover_url || '')}" alt="Örtük şəkli">
+          ${v.cover_url ? '<label class="check" style="margin-top:8px"><input type="checkbox" name="cover_remove"><span class="small">Şəkli sil, xəritə illüstrasiyası göstərilsin</span></label>' : ''}
+          <span class="hint">Şəkil seçməsən, xəritəyə uyğun illüstrasiya göstərilir.</span></div>
         <div class="field"><label for="e-desc">Qaydalar və təfərrüatlar</label><textarea id="e-desc" name="description" maxlength="2000" rows="5" placeholder="Məs: emulyator qadağandır, komandada 4 nəfər...">${esc(v.description || '')}</textarea></div>
         <div class="form-actions"><button class="btn btn-primary">${ev ? 'Yadda saxla' : 'Tədbiri yarat'}</button><a class="btn btn-ghost" href="${ev ? '#/event/' + ev.id : '#/events'}">İmtina</a></div>
       </form></div>`, {}, {
@@ -888,6 +1110,9 @@
           card_number: f.card_number.value.trim() || null, card_holder: f.card_holder.value.trim() || null,
           prize: f.prize.value.trim() || null, org_name: f.org_name.value.trim() || null, description: f.description.value.trim() || null,
         };
+        const coverFile = f.cover && f.cover.files[0];
+        if (coverFile) payload.cover_url = await uploadMedia(coverFile, 'covers', 1600);
+        else if (f.cover_remove && f.cover_remove.checked) payload.cover_url = null;
         if (ev) {
           const { error } = await sb.from('events').update(payload).eq('id', ev.id);
           if (error) throw error;
@@ -925,11 +1150,11 @@
     const cta = !uid() ? `<a class="btn" href="#/login?next=squad/new">${kind === 'clan' ? 'Klan yarat' : 'Komanda yarat'}</a>`
       : (inOne || banned() ? '' : `<a class="btn btn-primary" href="#/squad/new?kind=${kind}">${I.plus}${kind === 'clan' ? 'Klan yarat' : 'Komanda yarat'}</a>`);
     paint(ctx, `<div class="stack">
-      <div class="row-between"><h1>Klanlar və komandalar</h1>${cta}</div>
+      ${pageHeadHTML('Klanlar və komandalar', 'Birlikdə oyna, birlikdə qazan.', 'squads-' + kind, kind === 'clan' ? 'vikendi' : 'sanhok', cta)}
       <nav class="tabs"><a href="#/squads" class="${kind === 'clan' ? 'on' : ''}">Klanlar</a><a href="#/squads?t=team" class="${kind === 'team' ? 'on' : ''}">Komandalar</a></nav>
       <p class="muted small">${kind === 'clan' ? 'Klan: böyük birlik, 100 nəfərə qədər.' : 'Komanda (ekip): turnirlərə birlikdə çıxanlar, 4 əsas + 2 ehtiyat.'} Hər oyunçu yalnız bir ${kind === 'clan' ? 'klanda' : 'komandada'} ola bilər.</p>
       ${data.length > 6 ? `<input type="search" placeholder="Ada görə axtar" data-filter=".squad-card" aria-label="Axtar">` : ''}
-      ${data.length ? `<div class="squad-grid">${data.map((s) => `<a class="squad-card" href="#/squad/${s.id}" data-name="${esc((s.name + ' ' + (s.tag || '')).toLowerCase())}">
+      ${data.length ? `<div class="squad-grid">${data.map((s) => `<a class="squad-card" href="#/squad/${s.id}" data-name="${esc((s.name + ' ' + (s.tag || '')).toLowerCase())}">${emblem(s)}<div class="sc-body">
           <h3>${esc(s.name)}${s.tag ? ` <span class="tag">[${esc(s.tag)}]</span>` : ''}</h3>
           ${s.description ? `<p class="muted small" style="margin-top:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(s.description)}</p>` : ''}
           <div class="row" style="margin-top:10px">
@@ -937,7 +1162,7 @@
             ${s.recruiting ? '<span class="chip st-approved">Üzv qəbul edir</span>' : '<span class="chip">Qəbul bağlıdır</span>'}
             ${mineIds.has(s.id) ? '<span class="chip role-admin">Sənin</span>' : ''}
           </div>
-          <p class="small dim" style="margin-top:8px">Lider: ${esc(s.leader ? s.leader.nick : '—')}</p></a>`).join('')}</div>`
+          <p class="small dim" style="margin-top:8px">Lider: ${esc(s.leader ? s.leader.nick : '—')}</p></div></a>`).join('')}</div>`
         : `<div class="empty">Hələ ${kind === 'clan' ? 'klan' : 'komanda'} yoxdur.${cta ? '<br>' + cta : ''}</div>`}
     </div>`);
   }
@@ -1005,7 +1230,7 @@
         if (canLead) btns.push(`<button class="btn btn-sm" data-act="m" data-a="make_leader" data-u="${m.user_id}">Lider et</button>`);
         if (canLead || m.role === 'member') btns.push(`<button class="btn btn-sm btn-bad" data-act="m" data-a="kick" data-u="${m.user_id}">Çıxar</button>`);
       }
-      return `<div class="list-item"><div class="grow"><div class="title">${userLink(m.profile)}</div>
+      return `<div class="list-item">${avatar(m.profile)}<div class="grow"><div class="title">${userLink(m.profile)}</div>
         <div class="small muted">${m.profile && m.profile.pubg_id ? 'PUBG ID ' + esc(m.profile.pubg_id) : ''}</div></div>
         <span class="chip ${m.role === 'leader' ? 'role-super' : m.role === 'officer' ? 'role-admin' : ''}">${ROLE[m.role]}</span>
         ${btns.length ? `<div class="row">${btns.join('')}</div>` : ''}</div>`;
@@ -1013,13 +1238,13 @@
 
     paint(ctx, `<div class="stack-lg">
       <div><a class="back" href="#/squads${s.kind === 'team' ? '?t=team' : ''}">${s.kind === 'clan' ? 'Bütün klanlar' : 'Bütün komandalar'}</a>
-        <div class="row-between"><div><span class="chip">${SQUAD[s.kind]}</span>
+        <div class="row-between"><div class="row" style="gap:16px;align-items:center">${emblem(s, 'emblem-lg')}<div><span class="chip">${SQUAD[s.kind]}</span>
           <h1 style="margin-top:8px">${esc(s.name)}${s.tag ? ` <span class="tag" style="font-size:1.4rem">[${esc(s.tag)}]</span>` : ''}</h1>
-          <p class="muted small" style="margin-top:4px">${s.members_count}/${SQUAD_MAX[s.kind]} üzv. Yaradılıb: ${fmtDate(s.created_at)}</p></div>
+          <p class="muted small" style="margin-top:4px">${s.members_count}/${SQUAD_MAX[s.kind]} üzv. Yaradılıb: ${fmtDate(s.created_at)}</p></div></div>
           <div>${joinBox}</div></div></div>
       ${s.description ? `<p class="desc">${esc(s.description)}</p>` : ''}
       ${canManage && pend.length ? `<section><h2 style="margin-bottom:10px">Qoşulma sorğuları (${pend.length})</h2><div class="list">${pend.map((m) => `<div class="list-item">
-          <div class="grow"><div class="title">${userLink(m.profile)}</div><div class="small muted">${fmtAgo(m.created_at)}</div></div>
+          ${avatar(m.profile)}<div class="grow"><div class="title">${userLink(m.profile)}</div><div class="small muted">${fmtAgo(m.created_at)}</div></div>
           <div class="row"><button class="btn btn-sm btn-ok" data-act="m" data-a="approve" data-u="${m.user_id}">Qəbul et</button>
           <button class="btn btn-sm btn-bad" data-act="m" data-a="reject" data-u="${m.user_id}">Rədd et</button></div></div>`).join('')}</div></section>` : ''}
       <section><h2 style="margin-bottom:10px">Üzvlər</h2><div class="list">${list.map(memberRow).join('')}</div></section>
@@ -1117,7 +1342,7 @@
     if (error) throw error;
     const cta = !uid() ? '<a class="btn" href="#/login?next=listing/new">Elan yerləşdir</a>' : banned() ? '' : `<a class="btn btn-primary" href="#/listing/new${cat !== 'all' ? '?c=' + cat : ''}">${I.plus}Elan yerləşdir</a>`;
     paint(ctx, `<div class="stack">
-      <div class="row-between"><h1>Elanlar</h1>${cta}</div>
+      ${pageHeadHTML('Elanlar', 'Komanda axtar, oyunçu tap, klanına üzv qəbul et.', 'listings', 'livik', cta)}
       <nav class="tabs"><a href="#/listings" class="${cat === 'all' ? 'on' : ''}">Hamısı</a>${Object.entries(CATS).map(([k, t]) => `<a href="#/listings?c=${k}" class="${cat === k ? 'on' : ''}">${t}</a>`).join('')}</nav>
       ${cat === 'all' || /^account_/.test(cat) ? accWarn(false) : ''}
       ${data.length ? `<div class="listings-grid">${data.map((l) => listingCard(l)).join('')}</div>` : `<div class="empty">Bu bölmədə elan yoxdur.</div>`}
@@ -1169,7 +1394,8 @@
 
   async function pageLogin(ctx) {
     if (uid()) { location.replace(nextHash(ctx)); return; }
-    paint(ctx, `<div class="auth-box panel">
+    paint(ctx, `<div class="auth-wrap"><div class="auth-art"><div class="aa-svg">${scene('login', MAP_THEMES.erangel, 700, 700, { chutes: 5, plane: true, airdrop: true })}</div>
+      <div><h2>Yenidən meydanda</h2><p>Daxil ol və növbəti scream-ə qoşul.</p></div></div><div class="auth-form">
       <h1>Daxil ol</h1>
       <form data-form="login" style="margin-top:16px">
         <div class="field"><label for="l-u">İstifadəçi adı</label><input id="l-u" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required></div>
@@ -1178,7 +1404,7 @@
       </form>
       <p class="small muted" style="margin-top:16px">Hesabın yoxdur? <a href="#/register${ctx.q.get('next') ? '?next=' + encodeURIComponent(ctx.q.get('next')) : ''}">Qeydiyyatdan keç</a></p>
       <p class="small dim" style="margin-top:6px">Şifrəni unutmusan? Adminə yaz, sənə yeni şifrə təyin edəcək.</p>
-    </div>`, {}, {
+    </div></div>`, {}, {
       login: async (f) => {
         const u = f.username.value.trim().toLowerCase().replace(/^@/, '');
         const { data, error } = await sb.auth.signInWithPassword({ email: toEmail(u), password: f.password.value });
@@ -1193,7 +1419,8 @@
 
   async function pageRegister(ctx) {
     if (uid()) { location.replace('#/'); return; }
-    paint(ctx, `<div class="auth-box panel">
+    paint(ctx, `<div class="auth-wrap"><div class="auth-art"><div class="aa-svg">${scene('register', MAP_THEMES.miramar, 700, 700, { chutes: 5, crate: true, smoke: true })}</div>
+      <div><h2>Komandaya qoşul</h2><p>Screamlər, turnirlər, klanlar: hamısı bir hesabla.</p></div></div><div class="auth-form">
       <h1>Qeydiyyat</h1>
       <p class="muted small" style="margin-top:6px">E-poçt lazım deyil. İstifadəçi adını və şifrəni yadda saxla.</p>
       <form data-form="register" style="margin-top:16px">
@@ -1211,7 +1438,7 @@
         <button class="btn btn-primary btn-block" style="margin-top:18px">Qeydiyyatdan keç</button>
       </form>
       <p class="small muted" style="margin-top:16px">Hesabın var? <a href="#/login">Daxil ol</a></p>
-    </div>`, {}, {
+    </div></div>`, {}, {
       register: async (f) => {
         const u = f.username.value.trim().toLowerCase();
         const nick = f.nick.value.trim();
@@ -1277,9 +1504,9 @@
     const hasAdmin = adminTabs().length > 0;
 
     paint(ctx, `<div class="stack-lg">
-      <div class="row-between"><div>
+      <div class="row-between"><div class="profile-head">${avatar(p, 'avatar-lg')}<div>
         <h1>${esc(p.nick)}</h1>
-        <div class="row" style="margin-top:6px"><span class="muted">@${esc(p.username)}</span>${roleChips(p, staffRow)}</div></div>
+        <div class="row" style="margin-top:6px"><span class="muted">@${esc(p.username)}</span>${roleChips(p, staffRow)}</div></div></div>
         <div class="row">${hasAdmin ? `<a class="btn btn-primary" href="#/admin">Admin panel${S.pending ? ` <span class="badge-count">${S.pending}</span>` : ''}</a>` : ''}
           <a class="btn" href="#/u/${esc(p.username)}">Açıq profil</a><button class="btn btn-ghost" data-logout>Çıxış</button></div>
       </div>
@@ -1356,8 +1583,8 @@
     ]);
     const canAdmin = uid() && (hasPerm('users') || hasPerm('organizers') || isSuper());
     paint(ctx, `<div class="stack-lg">
-      <div class="row-between"><div><h1>${esc(p.nick)}</h1>
-        <div class="row" style="margin-top:6px"><span class="muted">@${esc(p.username)}</span>${roleChips(p, st.data)}</div></div>
+      <div class="row-between"><div class="profile-head">${avatar(p, 'avatar-lg')}<div><h1>${esc(p.nick)}</h1>
+        <div class="row" style="margin-top:6px"><span class="muted">@${esc(p.username)}</span>${roleChips(p, st.data)}</div></div></div>
         <div class="row">${canAdmin && p.id !== uid() ? `<a class="btn btn-sm" href="#/admin/users?q=${esc(p.username)}">Admin paneldə aç</a>` : ''}
           ${uid() && p.id !== uid() ? `<button class="btn btn-sm btn-ghost" data-report="user:${p.id}">${I.flag}Şikayət et</button>` : ''}</div></div>
       <dl class="facts">
@@ -1375,12 +1602,13 @@
   // ADMİN PANEL
   // ==================================================================
   const ADMIN_TABS = [
-    { id: 'payments', name: 'Ödənişlər', can: () => hasPerm('payments'), fn: adminPayments },
-    { id: 'users', name: 'İstifadəçilər', can: () => hasPerm('users') || hasPerm('organizers'), fn: adminUsers },
-    { id: 'admins', name: 'Adminlər', can: () => isSuper(), fn: adminAdmins },
-    { id: 'reports', name: 'Şikayətlər', can: () => hasPerm('moderation'), fn: adminReports },
-    { id: 'audit', name: 'Jurnal', can: () => hasPerm('audit'), fn: adminAudit },
-    { id: 'settings', name: 'Ayarlar', can: () => isSuper(), fn: adminSettings },
+    { id: 'overview', name: 'İcmal', icon: 'chart', can: () => isSuper() || (S.access.permissions || []).length > 0, fn: adminOverview },
+    { id: 'payments', name: 'Ödənişlər', icon: 'cash', can: () => hasPerm('payments'), fn: adminPayments },
+    { id: 'users', name: 'İstifadəçilər', icon: 'users', can: () => hasPerm('users') || hasPerm('organizers'), fn: adminUsers },
+    { id: 'admins', name: 'Adminlər', icon: 'shield', can: () => isSuper(), fn: adminAdmins },
+    { id: 'reports', name: 'Şikayətlər', icon: 'flag', can: () => hasPerm('moderation'), fn: adminReports },
+    { id: 'audit', name: 'Jurnal', icon: 'list', can: () => hasPerm('audit'), fn: adminAudit },
+    { id: 'settings', name: 'Ayarlar', icon: 'gear', can: () => isSuper(), fn: adminSettings },
   ];
 
   async function pageAdmin(ctx) {
@@ -1388,9 +1616,63 @@
     const tabs = adminTabs();
     if (!tabs.length) return paint(ctx, emptyPage('Bu bölməyə giriş icazən yoxdur.'));
     const cur = tabs.find((t) => t.id === ctx.params[0]) || tabs[0];
-    const head = `<div class="stack"><h1>Admin panel</h1>
-      <nav class="tabs">${tabs.map((t) => `<a href="#/admin/${t.id}" class="${t.id === cur.id ? 'on' : ''}">${t.name}${t.id === 'payments' && S.pending ? ` <span class="badge-count">${S.pending}</span>` : ''}</a>`).join('')}</nav></div>`;
-    await cur.fn(ctx, head);
+    const nav = `<nav class="admin-nav" aria-label="Admin menyusu">
+      <div class="an-title">Admin <span>${isSuper() ? 'Baş admin' : 'Admin'}</span></div>
+      ${tabs.map((t) => `<a href="#/admin/${t.id}" class="${t.id === cur.id ? 'on' : ''}">${I[t.icon] || ''}<span>${t.name}</span>${t.id === 'payments' && S.pending ? `<span class="badge-count">${S.pending}</span>` : ''}</a>`).join('')}
+    </nav>`;
+    ctx.wrap = (html) => `<div class="admin-layout">${nav}<div class="admin-main">${html}</div></div>`;
+    await cur.fn(ctx, `<h1>${esc(cur.name)}</h1>`);
+  }
+
+  async function adminOverview(ctx, head) {
+    const nowIso = new Date().toISOString();
+    const dayEnd = new Date(); dayEnd.setHours(23, 59, 59, 999);
+    const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString();
+    const cnt = (q) => q.then((r) => r.count || 0, () => 0);
+    const none = Promise.resolve(0);
+    const [pend, today, users, newUsers, reports, squads, listings, upcoming, recent, pendList] = await Promise.all([
+      hasPerm('payments') ? cnt(sb.from('event_entries').select('id', { count: 'exact', head: true }).eq('status', 'pending')) : none,
+      cnt(sb.from('events').select('id', { count: 'exact', head: true }).in('status', ['open', 'closed']).gte('starts_at', nowIso).lte('starts_at', dayEnd.toISOString())),
+      cnt(sb.from('profiles').select('id', { count: 'exact', head: true })),
+      cnt(sb.from('profiles').select('id', { count: 'exact', head: true }).gte('created_at', weekAgo)),
+      hasPerm('moderation') ? cnt(sb.from('reports').select('id', { count: 'exact', head: true }).eq('status', 'open')) : none,
+      cnt(sb.from('squads').select('id', { count: 'exact', head: true })),
+      cnt(sb.from('listings').select('id', { count: 'exact', head: true }).eq('is_active', true).gt('expires_at', nowIso)),
+      sb.from('events').select(EV_SEL).in('status', ['open', 'closed']).gte('starts_at', nowIso).order('starts_at').limit(5),
+      sb.from('profiles').select('*').order('created_at', { ascending: false }).limit(6),
+      hasPerm('payments') ? sb.from('event_entries').select('*, profile:profiles(nick, username), event:events(id, title, entry_fee)').eq('status', 'pending').order('created_at').limit(5) : Promise.resolve({ data: [] }),
+    ]);
+    const tile = (n, label, icon, href, hot) => `<${href ? `a href="${href}"` : 'div'} class="stat ${hot ? 'hot' : ''}">${I[icon]}<b>${n}</b><span>${label}</span></${href ? 'a' : 'div'}>`;
+    const ev = upcoming.data || [];
+    const pl = pendList.data || [];
+    paint(ctx, `<div class="stack-lg">${head}
+      <div class="stat-tiles">
+        ${hasPerm('payments') ? tile(pend, 'gözləyən çek', 'cash', '#/admin/payments', pend > 0) : ''}
+        ${tile(today, 'bu gün tədbir', 'zone', '#/events')}
+        ${tile(users, 'oyunçu', 'users', hasPerm('users') || hasPerm('organizers') ? '#/admin/users' : '')}
+        ${tile('+' + newUsers, 'son 7 gündə qeydiyyat', 'user', '')}
+        ${hasPerm('moderation') ? tile(reports, 'açıq şikayət', 'flag', '#/admin/reports', reports > 0) : ''}
+        ${tile(squads, 'klan və komanda', 'shield', '#/squads')}
+        ${tile(listings, 'aktiv elan', 'board', '#/listings')}
+      </div>
+      <div class="row">
+        <a class="btn btn-primary" href="#/event/new?kind=tournament">${I.trophy}Turnir yarat</a>
+        <a class="btn" href="#/event/new">${I.plus}Scream yarat</a>
+        ${isSuper() ? `<a class="btn" href="#/admin/settings">${I.image}Qarşılama şəkilləri</a>` : ''}
+      </div>
+      <div class="two-col">
+        ${hasPerm('payments') ? `<section><div class="section-head"><h2>Yoxlanılası çeklər</h2><a href="#/admin/payments">Hamısı</a></div>
+          ${pl.length ? `<div class="list">${pl.map((e) => `<a class="list-item" href="#/admin/payments">${avatar(e.profile)}<div class="grow"><div class="title">${esc(e.profile ? e.profile.nick : '')}</div>
+            <div class="small muted">${esc(e.event ? e.event.title : '')}, ${fmtAgo(e.created_at)}</div></div><b style="color:var(--gold)">${e.event ? money(e.event.entry_fee) : ''}</b></a>`).join('')}</div>`
+            : '<div class="empty">Hamısı yoxlanılıb.</div>'}</section>` : ''}
+        <section><div class="section-head"><h2>Yaxın tədbirlər</h2><a href="#/events">Hamısı</a></div>
+          ${ev.length ? `<div class="list">${ev.map((e) => `<a class="list-item" href="#/event/${e.id}"><div class="grow"><div class="title">${esc(e.title)}</div>
+            <div class="small muted">${fmtFull(e.starts_at)}, ${e.taken}/${e.slots} yer</div></div>${kindChip(e.kind)}</a>`).join('')}</div>` : '<div class="empty">Yaxın tədbir yoxdur.</div>'}</section>
+        <section><div class="section-head"><h2>Yeni oyunçular</h2>${hasPerm('users') ? '<a href="#/admin/users">Hamısı</a>' : ''}</div>
+          <div class="list">${(recent.data || []).map((p) => `<a class="list-item" href="#/u/${esc(p.username)}">${avatar(p)}<div class="grow"><div class="title">${esc(p.nick)}</div>
+            <div class="small muted">@${esc(p.username)}, ${fmtAgo(p.created_at)}</div></div></a>`).join('')}</div></section>
+      </div>
+    </div>`);
   }
 
   async function adminPayments(ctx, head) {
@@ -1403,7 +1685,7 @@
       <p class="muted">Çekə toxunub böyüt, məbləği və kartı yoxla, sonra təsdiqlə və ya səbəb yazıb ləğv et.</p>
       ${data.length ? `<div class="list">${data.map((e) => `<div class="list-item">
           ${thumbs[e.receipt_path] ? `<img class="receipt-thumb" src="${esc(thumbs[e.receipt_path])}" alt="Çek" data-act="receipt" data-id="${e.id}">` : ''}
-          <div class="grow"><div class="title">${userLink(e.profile)}</div>
+          ${avatar(e.profile)}<div class="grow"><div class="title">${userLink(e.profile)}</div>
             <div class="small muted">${e.event ? `<a href="#/event/${e.event.id}">${esc(e.event.title)}</a>, ${fmtFull(e.event.starts_at)}. Məbləğ: <b style="color:var(--flare)">${money(e.event.entry_fee)}</b>, kart ...${esc((e.event.card_number || '').replace(/\s/g, '').slice(-4))}` : ''}</div>
             <div class="small dim">Göndərilib: ${fmtAgo(e.created_at)}</div></div>
           <div class="row"><button class="btn btn-sm btn-ok" data-act="approve" data-id="${e.id}">Təsdiqlə</button><button class="btn btn-sm btn-bad" data-act="reject" data-id="${e.id}">Ləğv et</button></div>
@@ -1452,7 +1734,7 @@
         if (hasPerm('organizers')) btns.push(`<button class="btn btn-sm" data-act="org" data-id="${p.id}" data-v="${p.is_organizer ? '0' : '1'}">${p.is_organizer ? 'Təşkilatçılığı götür' : 'Təşkilatçı et'}</button>`);
         if (isSuper()) btns.push(`<button class="btn btn-sm btn-primary" data-act="admin" data-id="${p.id}">${st ? 'İcazələr' : 'Admin et'}</button>`);
       }
-      return `<div class="list-item"><div class="grow"><div class="title">${userLink(p)}</div>
+      return `<div class="list-item">${avatar(p)}<div class="grow"><div class="title">${userLink(p)}</div>
         <div class="small muted">${p.pubg_id ? 'PUBG ID ' + esc(p.pubg_id) + '. ' : ''}Qeydiyyat: ${fmtDate(p.created_at)}${p.ban_reason ? '. Blok səbəbi: ' + esc(p.ban_reason) : ''}</div></div>
         <div class="row" style="gap:6px">${roleChips(p, st)}</div>${btns.length ? `<div class="row">${btns.join('')}</div>` : ''}</div>`;
     };
@@ -1599,9 +1881,20 @@
   async function adminSettings(ctx, head) {
     await loadSettings();
     const s = S.settings;
+    const photos = Array.isArray(s.hero_images) ? s.hero_images : null;
     paint(ctx, `<div class="stack-lg">${head}
+      <section class="panel">
+        <h2>Qarşılama şəkilləri</h2>
+        <p class="muted small">Ana səhifənin böyük ekranında növbə ilə göstərilir (5 şəklə qədər). Ən yaxşısı geniş (üfüqi) oyun ekran şəkilləridir. Şəkil olmasa, illüstrasiya göstərilir.</p>
+        ${photos === null ? '<div class="warn-box" style="margin-top:12px">Bu funksiya üçün Supabase-də <b>supabase/02-dizayn.sql</b> faylını bir dəfə işlət.</div>' : `
+        <div class="media-grid" style="margin-top:14px">
+          ${photos.map((u, i) => `<div class="media-item"><img src="${esc(u)}" alt="Qarşılama şəkli ${i + 1}"><button class="btn btn-sm btn-bad" data-act="rmphoto" data-i="${i}">Sil</button></div>`).join('')}
+          ${photos.length < 5 ? `<label class="media-add">${I.image}<span>Şəkil əlavə et</span><input type="file" accept="image/*" data-act-change="addphoto"></label>` : ''}
+        </div>`}
+      </section>
       <form data-form="settings" class="form panel">
-        <div class="field"><label for="st-n">Saytın yuxarısındakı elan</label><textarea id="st-n" name="site_notice" maxlength="300" placeholder="Məs: Bu cümə saat 21:00-da AZ Kubok başlayır!">${esc(s.site_notice || '')}</textarea><span class="hint">Boş qalsa, zolaq görünmür.</span></div>
+        <h2>Ümumi</h2>
+        <div class="field" style="margin-top:12px"><label for="st-n">Saytın yuxarısındakı elan</label><textarea id="st-n" name="site_notice" maxlength="300" placeholder="Məs: Bu cümə saat 21:00-da AZ Kubok başlayır!">${esc(s.site_notice || '')}</textarea><span class="hint">Boş qalsa, zolaq görünmür.</span></div>
         <div class="field"><label for="st-tg">Telegram qrupunun linki</label><input id="st-tg" name="telegram_group" type="text" value="${esc(s.telegram_group || '')}" placeholder="https://t.me/qrup_adi"></div>
         <h3 style="margin-top:22px">Scream məhdudiyyətləri (adi istifadəçilər üçün)</h3>
         <div class="grid-2" style="margin-top:10px">
@@ -1610,7 +1903,15 @@
         </div>
         <div class="field"><label for="st-op">Bir adamın eyni anda açıq scream sayı</label><input id="st-op" name="max_open_screams" type="number" min="1" max="50" value="${esc(s.max_open_screams)}"></div>
         <div class="form-actions"><button class="btn btn-primary">Yadda saxla</button></div>
-      </form></div>`, {}, {
+      </form></div>`, {
+      rmphoto: async (el) => {
+        if (!(await confirmAsk('Şəkli silmək?', '', 'Sil', 'btn-bad'))) return;
+        const list = photos.filter((_, i) => i !== Number(el.dataset.i));
+        const { error } = await sb.from('settings').update({ hero_images: list }).eq('id', 1);
+        if (error) return toast(errMsg(error), 'bad');
+        toast('Şəkil silindi'); refresh();
+      },
+    }, {
       settings: async (f) => {
         const tg = f.telegram_group.value.trim();
         if (tg && !/^https:\/\/t\.me\/[\w+\/-]+$/.test(tg)) throw new Error('Telegram linki https://t.me/ ilə başlamalıdır');
@@ -1621,6 +1922,17 @@
         if (error) throw error;
         await loadSettings(); toast('Ayarlar yadda saxlanıldı', 'ok'); refresh();
       },
+    });
+    const add = $('[data-act-change="addphoto"]');
+    if (add) add.addEventListener('change', async () => {
+      const file = add.files[0]; if (!file) return;
+      const lbl = add.closest('.media-add'); lbl.querySelector('span').textContent = 'Yüklənir…';
+      try {
+        const url = await uploadMedia(file, 'hero', 1920);
+        const { error } = await sb.from('settings').update({ hero_images: [...photos, url] }).eq('id', 1);
+        if (error) throw error;
+        await loadSettings(); toast('Şəkil əlavə edildi', 'ok'); refresh();
+      } catch (e) { toast(errMsg(e), 'bad'); lbl.querySelector('span').textContent = 'Şəkil əlavə et'; }
     });
   }
 
