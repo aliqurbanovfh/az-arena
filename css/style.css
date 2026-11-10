@@ -496,3 +496,25 @@ a.stat:hover { border-color: var(--line-2); text-decoration: none; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition-duration: 0.01ms !important; }
 }
+
+/* ---------- v3: M10, keçidlər, loqo ---------- */
+html { scroll-behavior: smooth; }
+.pay-switch { display: inline-grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-top: 10px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line-2); width: 100%; }
+.pay-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.pay-switch label { text-align: center; padding: 8px 10px; border-radius: 9px; font-weight: 600; color: var(--muted); cursor: pointer; transition: background-color 0.15s, color 0.15s; }
+.pay-switch input:checked + label { background: var(--gold); color: var(--gold-ink); }
+.pay-switch input:focus-visible + label { outline: 2px solid var(--gold); outline-offset: 2px; }
+.m10-num { background: linear-gradient(135deg, #3B1F4F, #1E1A2E); border-color: #5A3A73; }
+.m10-num small { display: inline-block; margin-right: 10px; padding: 2px 7px; border-radius: 6px; background: #B44CFF; color: #fff; font-family: var(--font-body); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; vertical-align: 3px; }
+.brand-name b { color: var(--gold); font-weight: 400; }
+.brand-mark { width: 40px; height: 40px; }
+.brand:hover .brand-mark .bm-ring { transform: rotate(90deg); }
+.brand-mark .bm-ring { transform-origin: 32px 32px; transition: transform 0.6s ease; }
+#app.enter > * { animation: page-in 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@keyframes page-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.lh-title, .lh-sub, .lh-cta, .lh-stats { animation: page-in 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.lh-sub { animation-delay: 0.08s; }
+.lh-cta { animation-delay: 0.16s; }
+.lh-stats { animation-delay: 0.24s; }
+.ev-card .ev-cover svg, .ev-card .ev-cover img { transition: transform 0.5s ease; }
+.ev-card:hover .ev-cover svg, .ev-card:hover .ev-cover img { transform: scale(1.04); }

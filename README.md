@@ -98,6 +98,13 @@ Supabase-də **SQL Editor** aç, `supabase/02-dizayn.sql` faylının hamısını
 - **Admin → Ayarlar → Qarşılama şəkilləri** bölməsindən ana səhifəyə 5-ə qədər öz PUBG ekran şəklini yükləyə bilərsən.
 - Tədbir yaradanda **örtük şəkli** əlavə etmək olar. Şəkil olmasa, xəritəyə uyğun illüstrasiya göstərilir.
 
+### 8. M10 və klan icazəsi (bir dəfə)
+
+Supabase-də **SQL Editor** aç, `supabase/03-m10-klan.sql` faylını yapışdır və **Run** bas. Bundan sonra:
+
+- Tədbir yaradanda kart nömrəsi, **M10 nömrəsi** və ya hər ikisi yazıla bilər. İkisi də olsa, oyunçu ödəniş üsulunu özü seçir, sən isə çekin yanında hansı üsulla ödədiyini görürsən.
+- **Klanı** yalnız icazə verilən adamlar yarada bilər. İcazəni **Admin → İstifadəçilər → Klan icazəsi ver** düyməsi ilə baş admin və `squads` icazəli adminlər verir. Komanda (ekip) yaratmaq hər kəsə açıqdır.
+
 ---
 
 ## Necə işləyir

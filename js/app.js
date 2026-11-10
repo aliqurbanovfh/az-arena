@@ -77,7 +77,7 @@
     organizers: 'İstifadəçilərə turnir təşkilatçısı icazəsi vermək',
     users: 'İstifadəçiləri bloklamaq və şifrə sıfırlamaq',
     moderation: 'Elanlar və şikayətlər',
-    squads: 'Klan və komandaları idarə etmək',
+    squads: 'Klan və komandaları idarə etmək, klan yaratma icazəsi vermək',
     audit: 'Əməliyyat jurnalına baxmaq',
   };
   const MODES = ['Solo TPP', 'Duo TPP', 'Squad TPP', 'Solo FPP', 'Duo FPP', 'Squad FPP', 'TDM', 'Arena', 'Digər'];
@@ -102,6 +102,7 @@
       [/Failed to fetch|NetworkError|Load failed/i, 'İnternet bağlantısını yoxlayın'],
       [/Database error saving new user/i, 'Qeydiyyat alınmadı: istifadəçi adı tutulmuş ola bilər'],
       [/JWT expired/i, 'Sessiya bitib, yenidən daxil olun'],
+      [/m10_number|pay_method|can_create_clan|set_clan_creator/i, 'Bu funksiya hələ aktiv deyil: Supabase-də supabase/03-m10-klan.sql faylını işlədin'],
       [/cover_url|hero_images|Bucket not found/i, 'Şəkil funksiyası hələ aktiv deyil: Supabase-də supabase/02-dizayn.sql faylını işlədin'],
       [/exceeded the maximum allowed size|Payload too large/i, 'Şəkil çox böyükdür'],
     ];
@@ -126,12 +127,13 @@
   // ------------------------------------------------------------------
   // Vəziyyət
   // ------------------------------------------------------------------
-  const blankAccess = () => ({ role: 'user', permissions: [], is_organizer: false, is_banned: false, ban_reason: null });
+  const blankAccess = () => ({ role: 'user', permissions: [], is_organizer: false, can_create_clan: false, is_banned: false, ban_reason: null });
   const S = { session: null, profile: null, access: blankAccess(), settings: {}, pending: 0 };
   const uid = () => (S.session && S.session.user && S.session.user.id) || null;
   const isSuper = () => S.access.role === 'super_admin';
   const hasPerm = (p) => isSuper() || (S.access.permissions || []).includes(p);
   const canHost = () => hasPerm('events') || !!S.access.is_organizer;
+  const canClan = () => hasPerm('squads') || !!S.access.can_create_clan;
   const banned = () => !!S.access.is_banned;
 
   async function loadSettings() {
@@ -302,11 +304,13 @@
   // ------------------------------------------------------------------
   // Naviqasiya və çərçivə
   // ------------------------------------------------------------------
-  let actions = {}, forms = {}, renderSeq = 0;
+  let actions = {}, forms = {}, renderSeq = 0, loadTimer = null;
 
   function paint(ctx, html, acts = {}, frms = {}) {
     if (ctx.seq !== renderSeq) return false;
+    clearTimeout(loadTimer);
     app.innerHTML = ctx.wrap ? ctx.wrap(html) : html;
+    if (!ctx.keep) { app.classList.remove('enter'); void app.offsetWidth; app.classList.add('enter'); }
     actions = acts; forms = frms;
     tick();
     return true;
@@ -344,6 +348,7 @@
       $$(t.dataset.toggle).forEach((el) => el.classList.toggle('hidden', !t.checked && t.type === 'checkbox'));
     }
     if (t.name === 'kind' && t.form && t.form.dataset.form === 'event') eventFormKindHint(t.form);
+    if (t.name === 'pay_method') $$('[data-pm]').forEach((el) => el.classList.toggle('hidden', el.dataset.pm !== t.value));
     if (t.name === 'category' && t.form && t.form.dataset.form === 'listing') {
       const w = $('#acc-warn'); if (w) w.classList.toggle('hidden', !/^account_/.test(t.value));
     }
@@ -438,7 +443,12 @@
     renderChrome(path);
     let fn = null;
     for (const [re, f] of ROUTES) { const m = path.match(re); if (m) { fn = f; ctx.params = m.slice(1); break; } }
-    if (!opts.keep) { app.innerHTML = '<div class="loading">Yüklənir…</div>'; window.scrollTo(0, 0); }
+    ctx.keep = !!opts.keep;
+    clearTimeout(loadTimer);
+    if (!opts.keep) {
+      window.scrollTo({ top: 0 });
+      loadTimer = setTimeout(() => { if (ctx.seq === renderSeq) app.innerHTML = '<div class="loading">Yüklənir…</div>'; }, 220);
+    }
     if (!fn) return paint(ctx, emptyPage('Səhifə tapılmadı', '<a class="btn" href="#/">Ana səhifə</a>'));
     try { await fn(ctx); } catch (e) {
       console.error(e);
@@ -697,7 +707,7 @@
     const nick = S.profile && S.profile.nick;
 
     const hero = `<section class="landing-hero">
-      <div class="lh-scene">${scene('hero-az', MAP_THEMES.erangel, 1600, 900, { chutes: 5, xMin: 0.5, airdrop: true, plane: true, crate: true, smoke: true, zone: true, animate: true })}</div>
+      <div class="lh-scene">${scene('hero-az', MAP_THEMES.erangel, 1600, 900, { chutes: 5, xMin: 0.62, airdrop: true, plane: true, crate: true, smoke: true, zone: true, animate: true })}</div>
       ${photos.map((u, i) => `<div class="lh-photo ${i === 0 ? 'on' : ''}" style="background-image:url('${esc(u)}')"></div>`).join('')}
       <div class="lh-content">
         <span class="lh-kicker"><i></i>${nick ? 'Xoş gəldin, ' + esc(nick) : (nEvents ? nEvents + ' tədbir qeydiyyat gözləyir' : 'Azərbaycan PUBG Mobile icması')}</span>
@@ -827,8 +837,15 @@
     // --- Qoşulma paneli
     const teamField = (val = '') => needsTeam ? `<div class="field" style="margin-top:10px"><label for="j-team">Komanda adı <span class="dim">(istəyə görə)</span></label><input id="j-team" name="team" type="text" maxlength="40" value="${esc(val)}"></div>` : '';
     const receiptField = `<label class="file-pick">${I.image}<span data-fname>Çekin şəklini seç</span><input type="file" name="receipt" accept="image/*" required data-preview="j-prev"></label><img id="j-prev" class="preview-img hidden" alt="Seçilmiş çek">`;
-    const cardBlock = `<div class="card-num"><span>${esc(ev.card_number)}</span><button type="button" class="icon-btn" data-copy="${esc((ev.card_number || '').replace(/\s/g, ''))}" aria-label="Kart nömrəsini kopyala">${I.copy}</button></div>
-      ${ev.card_holder ? `<p class="small muted" style="margin-top:6px">Kart sahibi: ${esc(ev.card_holder)}</p>` : ''}`;
+    const hasCard = !!(ev.card_number && ev.card_number.trim());
+    const hasM10 = !!(ev.m10_number && ev.m10_number.trim());
+    const cardBlock = (hasCard ? `<div data-pm="card" class="${hasM10 && hasCard ? '' : ''}"><div class="card-num"><span>${esc(ev.card_number)}</span><button type="button" class="icon-btn" data-copy="${esc((ev.card_number || '').replace(/\s/g, ''))}" aria-label="Kart nömrəsini kopyala">${I.copy}</button></div>
+      ${ev.card_holder ? `<p class="small muted" style="margin-top:6px">Kart sahibi: ${esc(ev.card_holder)}</p>` : ''}</div>` : '') +
+      (hasM10 ? `<div data-pm="m10" class="${hasCard ? 'hidden' : ''}"><div class="card-num m10-num"><span><small>M10</small>${esc(ev.m10_number)}</span><button type="button" class="icon-btn" data-copy="${esc(ev.m10_number.replace(/[^\d+]/g, ''))}" aria-label="M10 nömrəsini kopyala">${I.copy}</button></div>
+      <p class="small muted" style="margin-top:6px">M10 tətbiqində bu nömrəyə köçür.</p></div>` : '');
+    const payChoice = hasCard && hasM10 ? `<div class="pay-switch" role="radiogroup" aria-label="Ödəniş üsulu">
+      <input type="radio" name="pay_method" id="pm-card" value="card" checked><label for="pm-card">Kartla</label>
+      <input type="radio" name="pay_method" id="pm-m10" value="m10"><label for="pm-m10">M10 ilə</label></div>` : '';
 
     function roomBox() {
       if (room.available) {
@@ -876,7 +893,7 @@
     } else {
       join = `<h3 style="margin-bottom:14px">Qoşul: ${money(ev.entry_fee)}</h3>
         <form data-form="join"><ol class="pay-steps">
-          <li><b>${money(ev.entry_fee)} köçür</b>${cardBlock}</li>
+          <li><b>${money(ev.entry_fee)} köçür</b>${payChoice}${cardBlock}</li>
           <li><b>Çekin şəklini yüklə</b><p class="small muted">Ekran şəkli olar. Məbləğ və vaxt aydın görünsün.</p>${receiptField}</li>
           <li><b>Göndər və təsdiqi gözlə</b>${teamField()}
             <button class="btn btn-primary btn-block" style="margin-top:12px">Çeki göndər</button>
@@ -893,7 +910,7 @@
       const entryItem = (e) => `<div class="list-item">
           ${e.receipt_path && thumbs[e.receipt_path] ? `<img class="receipt-thumb" src="${esc(thumbs[e.receipt_path])}" alt="Çek" data-act="receipt" data-id="${e.id}">` : ''}
           ${avatar(e.profile)}<div class="grow"><div class="title">${userLink(e.profile)}</div>
-            <div class="small muted">Oyunda: ${esc(e.pubg_nick || '—')}, ID ${esc(e.pubg_id || '—')}${e.team_name ? ', komanda: ' + esc(e.team_name) : ''}. ${fmtAgo(e.created_at)}</div>
+            <div class="small muted">${e.pay_method ? `<b style="color:var(--gold)">${e.pay_method === 'm10' ? 'M10' : 'Kart'}</b>. ` : ''}Oyunda: ${esc(e.pubg_nick || '—')}, ID ${esc(e.pubg_id || '—')}${e.team_name ? ', komanda: ' + esc(e.team_name) : ''}. ${fmtAgo(e.created_at)}</div>
             ${e.reject_reason ? `<div class="small" style="color:var(--bad)">Səbəb: ${esc(e.reject_reason)}</div>` : ''}</div>
           <div class="row">
             ${e.receipt_path ? `<button class="btn btn-sm" data-act="receipt" data-id="${e.id}">Çek</button>` : ''}
@@ -997,7 +1014,8 @@
           if (!file) throw new Error('Çekin şəklini seçin');
           path = await uploadReceipt(ev.id, file);
         }
-        const { error: e } = await sb.from('event_entries').insert({ event_id: ev.id, user_id: uid(), team_name: (f.team && f.team.value.trim()) || null, receipt_path: path });
+        const pm = hasM10 ? ((f.querySelector('input[name=pay_method]:checked') || {}).value || (hasCard ? 'card' : 'm10')) : null;
+        const { error: e } = await sb.from('event_entries').insert({ event_id: ev.id, user_id: uid(), team_name: (f.team && f.team.value.trim()) || null, receipt_path: path, ...(pm && paid ? { pay_method: pm } : {}) });
         if (e) { if (path) sb.storage.from('receipts').remove([path]); throw e; }
         toast(paid ? 'Çek göndərildi. Təsdiq gözlənilir.' : 'Qoşuldun!', 'ok');
         refresh();
@@ -1080,9 +1098,10 @@
           <div class="field"><label for="e-slots">Yer sayı</label><input id="e-slots" name="slots" type="number" min="1" max="1000" value="${esc(v.slots)}"></div>
         </div>
         <div class="grid-2">
-          <div class="field"><label for="e-card">Kart nömrəsi</label><input id="e-card" name="card_number" type="text" inputmode="numeric" maxlength="30" value="${esc(v.card_number || '')}" placeholder="4169 0000 0000 0000"><span class="hint">Ödənişlər bu karta köçürüləcək.</span></div>
+          <div class="field"><label for="e-card">Kart nömrəsi</label><input id="e-card" name="card_number" type="text" inputmode="numeric" maxlength="30" value="${esc(v.card_number || '')}" placeholder="4169 0000 0000 0000"><span class="hint">Kartla ödəniş üçün.</span></div>
           <div class="field"><label for="e-holder">Kart sahibi <span class="dim">(istəyə görə)</span></label><input id="e-holder" name="card_holder" type="text" maxlength="60" value="${esc(v.card_holder || '')}"></div>
         </div>
+        <div class="field"><label for="e-m10">M10 nömrəsi <span class="dim">(istəyə görə)</span></label><input id="e-m10" name="m10_number" type="tel" inputmode="tel" maxlength="20" value="${esc(v.m10_number || '')}" placeholder="+994 50 123 45 67"><span class="hint">Kart, M10 və ya hər ikisi. İkisi də olsa, oyunçu ödəniş üsulunu özü seçir.</span></div>
         <div class="field"><label for="e-prize">Mükafat <span class="dim">(istəyə görə)</span></label><input id="e-prize" name="prize" type="text" maxlength="200" value="${esc(v.prize || '')}" placeholder="Məs: 1-ci yer 30 ₼, 2-ci yer 15 ₼"></div>
         <div class="field"><label for="e-org">Təşkilatçı kimi göstərilən ad <span class="dim">(istəyə görə)</span></label><input id="e-org" name="org_name" type="text" maxlength="40" value="${esc(v.org_name || '')}"><span class="hint">Boş qalsa, sənin nikin göstəriləcək.</span></div>
         <div class="field"><span class="label">Örtük şəkli <span class="dim">(istəyə görə)</span></span>
@@ -1103,11 +1122,14 @@
         if (!ev && Date.parse(startIso) < Date.now()) throw new Error('Başlama vaxtı keçmiş ola bilməz');
         if (!(slots >= 1)) throw new Error('Yer sayını yazın');
         if (fee < 0 || Number.isNaN(fee)) throw new Error('Giriş haqqı düzgün deyil');
-        if (fee > 0 && !f.card_number.value.trim()) throw new Error('Ödənişli tədbir üçün kart nömrəsi yazın');
+        const m10 = f.m10_number.value.trim();
+        if (m10 && !/^\+?[0-9 ()-]{9,20}$/.test(m10)) throw new Error('M10 nömrəsi düzgün deyil. Nümunə: +994 50 123 45 67');
+        if (fee > 0 && !f.card_number.value.trim() && !m10) throw new Error('Ödənişli tədbir üçün kart və ya M10 nömrəsi yazın');
         const payload = {
           title: f.title.value.trim(), mode: f.mode.value || null, map: f.map.value || null, starts_at: startIso,
           reveal_minutes: parseInt(f.reveal_minutes.value || '10', 10), entry_fee: fee, slots,
           card_number: f.card_number.value.trim() || null, card_holder: f.card_holder.value.trim() || null,
+          ...(m10 || (ev && ev.m10_number) ? { m10_number: m10 || null } : {}),
           prize: f.prize.value.trim() || null, org_name: f.org_name.value.trim() || null, description: f.description.value.trim() || null,
         };
         const coverFile = f.cover && f.cover.files[0];
@@ -1148,10 +1170,12 @@
     const inOne = mine.some((m) => m.kind === kind && m.status === 'member');
     const mineIds = new Set(mine.filter((m) => m.status === 'member').map((m) => m.squad_id));
     const cta = !uid() ? `<a class="btn" href="#/login?next=squad/new">${kind === 'clan' ? 'Klan yarat' : 'Komanda yarat'}</a>`
-      : (inOne || banned() ? '' : `<a class="btn btn-primary" href="#/squad/new?kind=${kind}">${I.plus}${kind === 'clan' ? 'Klan yarat' : 'Komanda yarat'}</a>`);
+      : (inOne || banned() || (kind === 'clan' && !canClan()) ? '' : `<a class="btn btn-primary" href="#/squad/new?kind=${kind}">${I.plus}${kind === 'clan' ? 'Klan yarat' : 'Komanda yarat'}</a>`);
+    const clanNote = kind === 'clan' && uid() && !canClan() && !inOne ? '<div class="warn-box">Klan yaratmaq üçün admin icazəsi lazımdır. Öz klanını qurmaq istəyirsənsə, adminə yaz. Komanda isə hər kəs yarada bilər.</div>' : '';
     paint(ctx, `<div class="stack">
       ${pageHeadHTML('Klanlar və komandalar', 'Birlikdə oyna, birlikdə qazan.', 'squads-' + kind, kind === 'clan' ? 'vikendi' : 'sanhok', cta)}
       <nav class="tabs"><a href="#/squads" class="${kind === 'clan' ? 'on' : ''}">Klanlar</a><a href="#/squads?t=team" class="${kind === 'team' ? 'on' : ''}">Komandalar</a></nav>
+      ${clanNote}
       <p class="muted small">${kind === 'clan' ? 'Klan: böyük birlik, 100 nəfərə qədər.' : 'Komanda (ekip): turnirlərə birlikdə çıxanlar, 4 əsas + 2 ehtiyat.'} Hər oyunçu yalnız bir ${kind === 'clan' ? 'klanda' : 'komandada'} ola bilər.</p>
       ${data.length > 6 ? `<input type="search" placeholder="Ada görə axtar" data-filter=".squad-card" aria-label="Axtar">` : ''}
       ${data.length ? `<div class="squad-grid">${data.map((s) => `<a class="squad-card" href="#/squad/${s.id}" data-name="${esc((s.name + ' ' + (s.tag || '')).toLowerCase())}">${emblem(s)}<div class="sc-body">
@@ -1170,11 +1194,11 @@
   async function pageSquadForm(ctx) {
     if (!requireLogin(ctx)) return;
     if (banned()) return paint(ctx, emptyPage('Bloklanmış hesab qrup yarada bilməz.'));
-    const kind = ctx.q.get('kind') === 'team' ? 'team' : 'clan';
+    const kind = ctx.q.get('kind') === 'team' || !canClan() ? 'team' : 'clan';
     paint(ctx, `<div class="stack"><h1>Yeni ${kind === 'clan' ? 'klan' : 'komanda'}</h1>
       <form data-form="squad" class="form panel">
         <div class="field"><span class="label">Növ</span><div class="choice">
-          <div><input type="radio" name="kind" id="sk-c" value="clan" ${kind === 'clan' ? 'checked' : ''}><label for="sk-c"><b>Klan</b><small>100 nəfərə qədər</small></label></div>
+          <div><input type="radio" name="kind" id="sk-c" value="clan" ${kind === 'clan' ? 'checked' : ''} ${canClan() ? '' : 'disabled'}><label for="sk-c"><b>Klan</b><small>${canClan() ? '100 nəfərə qədər' : 'Admin icazəsi ilə açılır'}</small></label></div>
           <div><input type="radio" name="kind" id="sk-t" value="team" ${kind === 'team' ? 'checked' : ''}><label for="sk-t"><b>Komanda</b><small>4 əsas + 2 ehtiyat</small></label></div>
         </div></div>
         <div class="grid-2">
@@ -1479,6 +1503,7 @@
     if (staffRow && staffRow.role === 'super_admin') out.push('<span class="chip role-super">Baş admin</span>');
     else if (staffRow && staffRow.role === 'admin') out.push('<span class="chip role-admin">Admin</span>');
     if (p.is_organizer) out.push('<span class="chip kind-tournament">Təşkilatçı</span>');
+    if (p.can_create_clan) out.push('<span class="chip st-approved">Klan yarada bilər</span>');
     if (p.is_banned) out.push('<span class="chip st-rejected">Bloklu</span>');
     return out.join('');
   }
@@ -1604,7 +1629,7 @@
   const ADMIN_TABS = [
     { id: 'overview', name: 'İcmal', icon: 'chart', can: () => isSuper() || (S.access.permissions || []).length > 0, fn: adminOverview },
     { id: 'payments', name: 'Ödənişlər', icon: 'cash', can: () => hasPerm('payments'), fn: adminPayments },
-    { id: 'users', name: 'İstifadəçilər', icon: 'users', can: () => hasPerm('users') || hasPerm('organizers'), fn: adminUsers },
+    { id: 'users', name: 'İstifadəçilər', icon: 'users', can: () => hasPerm('users') || hasPerm('organizers') || hasPerm('squads'), fn: adminUsers },
     { id: 'admins', name: 'Adminlər', icon: 'shield', can: () => isSuper(), fn: adminAdmins },
     { id: 'reports', name: 'Şikayətlər', icon: 'flag', can: () => hasPerm('moderation'), fn: adminReports },
     { id: 'audit', name: 'Jurnal', icon: 'list', can: () => hasPerm('audit'), fn: adminAudit },
@@ -1677,7 +1702,7 @@
 
   async function adminPayments(ctx, head) {
     const { data, error } = await sb.from('event_entries')
-      .select('*, profile:profiles(nick, username), event:events(id, title, starts_at, entry_fee, card_number)')
+      .select('*, profile:profiles(nick, username), event:events(*)')
       .eq('status', 'pending').order('created_at').limit(100);
     if (error) throw error;
     const thumbs = await signedThumbs(data);
@@ -1686,7 +1711,7 @@
       ${data.length ? `<div class="list">${data.map((e) => `<div class="list-item">
           ${thumbs[e.receipt_path] ? `<img class="receipt-thumb" src="${esc(thumbs[e.receipt_path])}" alt="Çek" data-act="receipt" data-id="${e.id}">` : ''}
           ${avatar(e.profile)}<div class="grow"><div class="title">${userLink(e.profile)}</div>
-            <div class="small muted">${e.event ? `<a href="#/event/${e.event.id}">${esc(e.event.title)}</a>, ${fmtFull(e.event.starts_at)}. Məbləğ: <b style="color:var(--flare)">${money(e.event.entry_fee)}</b>, kart ...${esc((e.event.card_number || '').replace(/\s/g, '').slice(-4))}` : ''}</div>
+            <div class="small muted">${e.event ? `<a href="#/event/${e.event.id}">${esc(e.event.title)}</a>, ${fmtFull(e.event.starts_at)}. Məbləğ: <b style="color:var(--gold)">${money(e.event.entry_fee)}</b>, ${e.pay_method === 'm10' ? 'M10 ' + esc(e.event.m10_number || '') : e.event.card_number ? 'kart ...' + esc(e.event.card_number.replace(/\s/g, '').slice(-4)) : 'M10 ' + esc(e.event.m10_number || '')}` : ''}</div>
             <div class="small dim">Göndərilib: ${fmtAgo(e.created_at)}</div></div>
           <div class="row"><button class="btn btn-sm btn-ok" data-act="approve" data-id="${e.id}">Təsdiqlə</button><button class="btn btn-sm btn-bad" data-act="reject" data-id="${e.id}">Ləğv et</button></div>
         </div>`).join('')}</div>` : '<div class="empty">Yoxlanılası çek yoxdur.</div>'}
@@ -1732,6 +1757,7 @@
           btns.push(`<button class="btn btn-sm" data-act="pw" data-id="${p.id}">Şifrə təyin et</button>`);
         }
         if (hasPerm('organizers')) btns.push(`<button class="btn btn-sm" data-act="org" data-id="${p.id}" data-v="${p.is_organizer ? '0' : '1'}">${p.is_organizer ? 'Təşkilatçılığı götür' : 'Təşkilatçı et'}</button>`);
+        if (hasPerm('squads')) btns.push(`<button class="btn btn-sm" data-act="clan" data-id="${p.id}" data-v="${p.can_create_clan ? '0' : '1'}">${p.can_create_clan ? 'Klan icazəsini götür' : 'Klan icazəsi ver'}</button>`);
         if (isSuper()) btns.push(`<button class="btn btn-sm btn-primary" data-act="admin" data-id="${p.id}">${st ? 'İcazələr' : 'Admin et'}</button>`);
       }
       return `<div class="list-item">${avatar(p)}<div class="grow"><div class="title">${userLink(p)}</div>
@@ -1758,6 +1784,10 @@
         if (!pw) return;
         const { error: e } = await sb.rpc('admin_reset_password', { p_user: el.dataset.id, p_password: pw });
         e ? toast(errMsg(e), 'bad') : toast('Şifrə dəyişdirildi', 'ok');
+      },
+      clan: async (el) => {
+        const { error: e } = await sb.rpc('set_clan_creator', { p_user: el.dataset.id, p_value: el.dataset.v === '1' });
+        e ? toast(errMsg(e), 'bad') : (toast(el.dataset.v === '1' ? 'Klan yaratma icazəsi verildi' : 'İcazə götürüldü', 'ok'), refresh());
       },
       org: async (el) => {
         const { error: e } = await sb.rpc('set_organizer', { p_user: el.dataset.id, p_value: el.dataset.v === '1' });
@@ -1850,7 +1880,7 @@
 
   const AUDIT = {
     admin_grant: 'adminlik verdi və ya icazələri dəyişdi', admin_revoke: 'adminliyi götürdü',
-    organizer_on: 'təşkilatçı etdi', organizer_off: 'təşkilatçılığı götürdü', ban: 'blokladı', unban: 'blokdan çıxardı',
+    organizer_on: 'təşkilatçı etdi', organizer_off: 'təşkilatçılığı götürdü', clan_creator_on: 'klan yaratma icazəsi verdi', clan_creator_off: 'klan yaratma icazəsini götürdü', ban: 'blokladı', unban: 'blokdan çıxardı',
     password_reset: 'şifrəni dəyişdi', entry_approve: 'ödənişi təsdiqlədi', entry_reject: 'ödənişi ləğv etdi',
     event_delete: 'tədbiri sildi', listing_delete: 'elanı sildi', squad_delete: 'qrupu sildi',
     squad_approve: 'qrupa üzv qəbul etdi', squad_reject: 'qrup sorğusunu rədd etdi', squad_kick: 'qrupdan üzv çıxardı',
@@ -1941,7 +1971,7 @@
   // ------------------------------------------------------------------
   (async function init() {
     document.title = SITE + ' — PUBG Mobile turnirləri və screamlər';
-    $('#brand-name').textContent = SITE.toUpperCase();
+    { const w = SITE.toUpperCase().split(' '); $('#brand-name').innerHTML = esc(w[0]) + (w.length > 1 ? ' <b>' + esc(w.slice(1).join(' ')) + '</b>' : ''); }
     renderChrome('');
     app.innerHTML = '<div class="loading">Yüklənir…</div>';
     try {
