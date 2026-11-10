@@ -230,3 +230,20 @@ begin
 exception when others then
   raise notice 'pg_cron qurulmadı (%). Təmizləmə yenə də hər yeni mesajda işləyir.', sqlerrm;
 end $$;
+
+-- ---------- Təhlükəsizlik: daxili trigger funksiyaları kənardan çağırıla bilməz ----------
+alter function public.all_permissions() set search_path = public;
+alter function public.squad_max(text) set search_path = public;
+do $$
+declare f text;
+begin
+  foreach f in array array[
+    'public.handle_new_user()', 'public.events_validate()', 'public.events_after_delete()',
+    'public.entries_before_insert()', 'public.entries_recount()',
+    'public.squads_before_insert()', 'public.squads_after_insert()', 'public.squad_members_recount()', 'public.squads_after_delete()',
+    'public.listings_before_insert()', 'public.listings_after_delete()',
+    'public.messages_before_insert()', 'public.messages_cleanup()'
+  ] loop
+    execute format('revoke execute on function %s from public, anon, authenticated', f);
+  end loop;
+end $$;
