@@ -305,6 +305,79 @@
   }
 
   // ------------------------------------------------------------------
+  // Təhlükəsizlik: Tor bloku, DevTools (F12) nəzarəti, IP qeydi
+  // ------------------------------------------------------------------
+  let torBlocked = false;
+  function showTorBlock() {
+    torBlocked = true;
+    $('#banners').innerHTML = '';
+    $('#tabbar').innerHTML = '';
+    $('#topnav').innerHTML = '';
+    $('#topuser').innerHTML = '';
+    app.innerHTML = `<div class="block-screen">${I.lock}<h1>Tor ilə giriş qadağandır</h1>
+      <p class="muted">Təhlükəsizlik səbəbindən ${esc(SITE)} saytına Tor Browser və ya Tor şəbəkəsi ilə daxil olmaq olmaz. Adi brauzerlə (Chrome, Safari, Firefox) yenidən daxil ol.</p></div>`;
+  }
+  // Server IP-ni oxuyur, Tor-dursa bildirir, daxil olmuş istifadəçinin IP-sini qeydə alır.
+  async function runGuard() {
+    try {
+      const { data, error } = await sb.functions.invoke('guard', { method: 'POST' });
+      if (error || !data) return true;
+      if (data.tor) {
+        try { await sb.auth.signOut(); } catch (_) { /* boş */ }
+        S.session = null;
+        showTorBlock();
+        return false;
+      }
+    } catch (e) { console.warn('guard', e); }
+    return true;
+  }
+
+  // DevTools: adi istifadəçilər üçün. 1-ci və 2-ci dəfə xəbərdarlıq, 3-cü dəfə hesab bloklanır.
+  const dtWatch = () => !torBlocked && S.access.role === 'user';
+  let dtBusy = false, dtGuestCount = 0;
+  async function devtoolsHit() {
+    if (!dtWatch() || dtBusy) return;
+    dtBusy = true;
+    try {
+      if (!uid()) {
+        dtGuestCount++;
+        await ask({ title: 'Xəbərdarlıq', text: 'Saytda DevTools (F12) istifadəsi qadağandır. Onu bağla və davam et.', ok: false });
+        return;
+      }
+      const { data, error } = await sb.rpc('security_strike', { p_kind: 'devtools' });
+      if (error || !data || data.staff) return;
+      if (data.banned) {
+        await loadMe();
+        renderChrome(location.hash.replace(/^#\/?/, '').split('?')[0]);
+        await ask({ title: 'Hesabın bloklandı', text: 'DevTools (F12) istifadəsinə görə hesabın avtomatik bloklandı. Blokdan çıxmaq üçün adminə yaz.', ok: false });
+        refresh();
+      } else {
+        await ask({ title: `Xəbərdarlıq ${Math.min(data.strikes, 2)}/2`, text: `Saytda DevTools (F12) istifadəsi qadağandır. ${data.strikes >= 2 ? 'Növbəti dəfə' : '3-cü dəfə'} hesabın avtomatik bloklanacaq və yalnız admin aça biləcək.`, ok: 'Başa düşdüm', okClass: 'btn-bad' });
+      }
+    } catch (e) { console.warn(e); } finally {
+      setTimeout(() => { dtBusy = false; }, 4000);
+    }
+  }
+  document.addEventListener('keydown', (e) => {
+    if (!dtWatch()) return;
+    const k = (e.key || '').toLowerCase();
+    const mod = e.ctrlKey || e.metaKey;
+    const hit = k === 'f12' || (mod && e.shiftKey && ['i', 'j', 'c', 'k'].includes(k)) || (e.metaKey && e.altKey && ['i', 'j', 'c'].includes(k)) || (mod && !e.shiftKey && k === 'u');
+    if (hit) { e.preventDefault(); e.stopPropagation(); devtoolsHit(); }
+  }, true);
+  document.addEventListener('contextmenu', (e) => {
+    if (dtWatch() && !e.target.closest('input, textarea')) e.preventDefault();
+  });
+  // Açıq DevTools-u tutmaq: "debugger" yalnız DevTools açıq olanda dayanır.
+  setInterval(() => {
+    if (!dtWatch() || document.hidden) return;
+    const t = performance.now();
+    // eslint-disable-next-line no-debugger
+    debugger;
+    if (performance.now() - t > 200) devtoolsHit();
+  }, 2500);
+
+  // ------------------------------------------------------------------
   // Naviqasiya və çərçivə
   // ------------------------------------------------------------------
   let actions = {}, forms = {}, renderSeq = 0, loadTimer = null;
@@ -441,6 +514,7 @@
   ];
 
   async function render(opts = {}) {
+    if (torBlocked) return;
     const seq = ++renderSeq;
     teardowns.splice(0).forEach((fn) => { try { fn(); } catch (e) { console.error(e); } });
     const raw = location.hash.replace(/^#\/?/, '');
@@ -1589,6 +1663,7 @@
         const { data, error } = await sb.auth.signInWithPassword({ email: toEmail(u), password: f.password.value });
         if (error) throw error;
         S.session = data.session;
+        if (!(await runGuard())) return;
         await loadMe();
         toast('Xoş gəldin, ' + ((S.profile && S.profile.nick) || u) + '!', 'ok');
         location.hash = nextHash(ctx);
@@ -1613,7 +1688,7 @@
           <div class="field"><label for="r-p2">Şifrə (təkrar)</label><input id="r-p2" name="password2" type="password" autocomplete="new-password" minlength="6" required></div>
         </div>
         <label class="check" style="margin-top:16px"><input type="checkbox" name="rules" required>
-          <span class="small">Qaydalarla razıyam: saxta çek, fırıldaq və təhqir qadağandır, pozanlar bloklanır.</span></label>
+          <span class="small">Qaydalarla razıyam: saxta çek, fırıldaq və təhqir qadağandır, pozanlar bloklanır. Təhlükəsizlik üçün IP ünvanım qeydə alınır; Tor ilə giriş və DevTools (F12) qadağandır.</span></label>
         <button class="btn btn-primary btn-block" style="margin-top:18px">Qeydiyyatdan keç</button>
       </form>
       <p class="small muted" style="margin-top:16px">Hesabın var? <a href="#/login">Daxil ol</a></p>
@@ -1643,6 +1718,7 @@
           if (r.error) throw r.error;
           S.session = r.data.session;
         }
+        if (!(await runGuard())) return;
         await loadMe();
         toast('Xoş gəldin, ' + nick + '!', 'ok');
         location.hash = nextHash(ctx);
@@ -1822,6 +1898,7 @@
       sb.from('profiles').select('*').order('created_at', { ascending: false }).limit(6),
       hasPerm('payments') ? sb.from('event_entries').select('*, profile:profiles!event_entries_user_id_fkey(nick, username), event:events!event_entries_event_id_fkey(id, title, entry_fee)').eq('status', 'pending').order('created_at').limit(5) : Promise.resolve({ data: [] }),
     ]);
+    const sec = hasPerm('users') ? ((await sb.from('security_events').select('*, profile:profiles!security_events_user_id_fkey(nick, username)').order('created_at', { ascending: false }).limit(8)).data || []) : [];
     const tile = (n, label, icon, href, hot) => `<${href ? `a href="${href}"` : 'div'} class="stat ${hot ? 'hot' : ''}">${I[icon]}<b>${n}</b><span>${label}</span></${href ? 'a' : 'div'}>`;
     const ev = upcoming.data || [];
     const pl = pendList.data || [];
@@ -1848,6 +1925,10 @@
         <section><div class="section-head"><h2>Yaxın tədbirlər</h2><a href="#/events">Hamısı</a></div>
           ${ev.length ? `<div class="list">${ev.map((e) => `<a class="list-item" href="#/event/${e.id}"><div class="grow"><div class="title">${esc(e.title)}</div>
             <div class="small muted">${fmtFull(e.starts_at)}, ${e.taken}/${e.slots} yer</div></div>${kindChip(e.kind)}</a>`).join('')}</div>` : '<div class="empty">Yaxın tədbir yoxdur.</div>'}</section>
+        ${hasPerm('users') ? `<section><div class="section-head"><h2>Təhlükəsizlik</h2><a href="#/admin/users">İstifadəçilər</a></div>
+          ${sec.length ? `<div class="list">${sec.map((e) => `<div class="list-item">${avatar(e.profile)}<div class="grow"><div class="title">${e.profile ? userLink(e.profile) : '—'}</div>
+            <div class="small muted">${e.kind === 'tor' ? 'Tor ilə girməyə çalışdı' : 'DevTools (F12) açdı'}${e.ip ? ', IP ' + esc(String(e.ip)) : ''}. ${fmtAgo(e.created_at)}</div></div>
+            <span class="chip ${e.kind === 'tor' ? 'st-rejected' : 'st-pending'}">${e.kind === 'tor' ? 'Tor' : 'F12'}</span></div>`).join('')}</div>` : '<div class="empty">Son günlərdə hadisə yoxdur.</div>'}</section>` : ''}
         <section><div class="section-head"><h2>Yeni oyunçular</h2>${hasPerm('users') ? '<a href="#/admin/users">Hamısı</a>' : ''}</div>
           <div class="list">${(recent.data || []).map((p) => `<a class="list-item" href="#/u/${esc(p.username)}">${avatar(p)}<div class="grow"><div class="title">${esc(p.nick)}</div>
             <div class="small muted">@${esc(p.username)}, ${fmtAgo(p.created_at)}</div></div></a>`).join('')}</div></section>
@@ -1893,12 +1974,38 @@
     toast('İcazələr yadda saxlanıldı', 'ok'); return true;
   }
 
+  async function showIps(userId, nick) {
+    const { data: ips, error } = await sb.from('user_ips').select('*').eq('user_id', userId).order('last_seen', { ascending: false });
+    if (error) return toast(errMsg(error), 'bad');
+    let shared = [];
+    if (ips && ips.length) {
+      const { data } = await sb.from('user_ips').select('user_id, ip, profile:profiles!user_ips_user_id_fkey(nick, username)').in('ip', ips.map((r) => String(r.ip))).neq('user_id', userId);
+      shared = data || [];
+    }
+    await ask({
+      title: 'IP ünvanları: ' + (nick || ''), ok: false,
+      html: ips && ips.length ? `<div class="list">${ips.map((r) => {
+        const same = shared.filter((x) => String(x.ip) === String(r.ip));
+        return `<div class="list-item"><div class="grow"><div class="title">${esc(String(r.ip))} ${r.is_tor ? '<span class="chip st-rejected">Tor</span>' : ''}</div>
+          <div class="small muted">İlk: ${fmtFull(r.first_seen)}. Son: ${fmtFull(r.last_seen)}. Giriş: ${r.hits} dəfə</div>
+          ${r.user_agent ? `<div class="small dim" style="overflow-wrap:anywhere">${esc(r.user_agent)}</div>` : ''}
+          ${same.length ? `<div class="small" style="color:var(--warn);margin-top:4px">Bu IP-dən digər hesablar: ${same.map((x) => x.profile ? `<a href="#/u/${esc(x.profile.username)}">${esc(x.profile.nick)}</a>` : '?').join(', ')}</div>` : ''}
+        </div></div>`;
+      }).join('')}</div>` : '<p class="muted">Bu istifadəçinin IP-si hələ qeydə alınmayıb (sayta yenilənmiş versiyadan sonra girəndə yazılacaq).</p>',
+    });
+  }
+
   async function adminUsers(ctx, head) {
     const q = (ctx.q.get('q') || '').trim();
     let qb = sb.from('profiles').select('*').order('created_at', { ascending: false }).limit(40);
     const s = q.replace(/[^\p{L}\p{N}_ .-]/gu, '').trim();
     if (s) qb = qb.or(`username.ilike."*${s}*",nick.ilike."*${s}*",pubg_id.ilike."*${s}*"`);
     const [{ data, error }, { data: staff }] = await Promise.all([qb, sb.from('staff').select('user_id, role, permissions')]);
+    const ipBy = {};
+    if (hasPerm('users') && data && data.length) {
+      const { data: ips } = await sb.from('user_ips').select('user_id, ip, is_tor, last_seen').in('user_id', data.map((p) => p.id)).order('last_seen', { ascending: false });
+      (ips || []).forEach((r) => { (ipBy[r.user_id] = ipBy[r.user_id] || []).push(r); });
+    }
     if (error) throw error;
     const staffBy = Object.fromEntries((staff || []).map((r) => [r.user_id, r]));
     const row = (p) => {
@@ -1916,7 +2023,8 @@
         if (isSuper()) btns.push(`<button class="btn btn-sm btn-primary" data-act="admin" data-id="${p.id}">${st ? 'İcazələr' : 'Admin et'}</button>`);
       }
       return `<div class="list-item">${avatar(p)}<div class="grow"><div class="title">${userLink(p)}</div>
-        <div class="small muted">${p.pubg_id ? 'PUBG ID ' + esc(p.pubg_id) + '. ' : ''}Qeydiyyat: ${fmtDate(p.created_at)}${p.ban_reason ? '. Blok səbəbi: ' + esc(p.ban_reason) : ''}</div></div>
+        <div class="small muted">${p.pubg_id ? 'PUBG ID ' + esc(p.pubg_id) + '. ' : ''}Qeydiyyat: ${fmtDate(p.created_at)}${p.ban_reason ? '. Blok səbəbi: ' + esc(p.ban_reason) : ''}</div>
+        ${hasPerm('users') ? `<div class="small ip-line">${ipBy[p.id] ? `IP: <button class="ip-link" data-act="ips" data-id="${p.id}">${esc(String(ipBy[p.id][0].ip))}</button>${ipBy[p.id][0].is_tor ? ' <span class="chip st-rejected">Tor</span>' : ''}${ipBy[p.id].length > 1 ? ` <span class="dim">və daha ${ipBy[p.id].length - 1} IP</span>` : ''}` : '<span class="dim">IP hələ qeydə alınmayıb</span>'}${p.devtools_strikes ? ` <span class="chip st-pending">F12: ${p.devtools_strikes}/3</span>` : ''}</div>` : ''}</div>
         <div class="row" style="gap:6px">${roleChips(p, st)}</div>${btns.length ? `<div class="row">${btns.join('')}</div>` : ''}</div>`;
     };
     paint(ctx, `<div class="stack-lg">${head}
@@ -1924,6 +2032,7 @@
       ${data.length ? `<div class="list">${data.map(row).join('')}</div>` : '<div class="empty">Heç kim tapılmadı.</div>'}
       ${!q ? '<p class="small dim">Son qeydiyyatdan keçən 40 nəfər göstərilir.</p>' : ''}
     </div>`, {
+      ips: (el) => showIps(el.dataset.id, (data.find((x) => x.id === el.dataset.id) || {}).nick),
       ban: async (el) => {
         const reason = await ask({ title: 'Bloklamaq', text: 'Səbəb istifadəçiyə görünəcək.', input: true, required: true, placeholder: 'Məs: saxta çek', ok: 'Blokla', okClass: 'btn-bad' });
         if (!reason) return;
@@ -2036,7 +2145,7 @@
   const AUDIT = {
     admin_grant: 'adminlik verdi və ya icazələri dəyişdi', admin_revoke: 'adminliyi götürdü',
     organizer_on: 'təşkilatçı etdi', organizer_off: 'təşkilatçılığı götürdü', clan_creator_on: 'klan yaratma icazəsi verdi', clan_creator_off: 'klan yaratma icazəsini götürdü', ban: 'blokladı', unban: 'blokdan çıxardı',
-    password_reset: 'şifrəni dəyişdi', entry_approve: 'ödənişi təsdiqlədi', entry_reject: 'ödənişi ləğv etdi',
+    password_reset: 'şifrəni dəyişdi', devtools_ban: 'DevTools (F12) səbəbindən avtomatik blokladı', entry_approve: 'ödənişi təsdiqlədi', entry_reject: 'ödənişi ləğv etdi',
     event_delete: 'tədbiri sildi', listing_delete: 'elanı sildi', squad_delete: 'qrupu sildi',
     squad_approve: 'qrupa üzv qəbul etdi', squad_reject: 'qrup sorğusunu rədd etdi', squad_kick: 'qrupdan üzv çıxardı',
     squad_promote: 'zabit etdi', squad_demote: 'zabitlikdən aldı', squad_make_leader: 'qrupa lider təyin etdi',
@@ -2134,6 +2243,7 @@
       S.session = data.session;
       await Promise.all([loadSettings(), loadMe()]);
     } catch (e) { console.error(e); }
+    if (!(await runGuard())) return;
     sb.auth.onAuthStateChange((event, session) => {
       const changed = ((session && session.user && session.user.id) || null) !== uid();
       S.session = session;

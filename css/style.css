@@ -553,3 +553,9 @@ body.chat-mode main.wrap { padding-bottom: 8px; }
 .chat-compose input { flex: 1; min-width: 0; border-radius: 999px; padding-left: 16px; }
 .chat-compose .btn { border-radius: 999px; }
 @media (max-width: 480px) { .hide-sm { display: none; } .chat-compose .btn { width: 46px; padding: 0; } }
+
+/* ---------- Təhlükəsizlik ---------- */
+.block-screen { max-width: 520px; margin: 60px auto; text-align: center; display: grid; justify-items: center; gap: 12px; padding: 30px 20px; border-radius: var(--r-panel); background: var(--surface); border: 1px solid rgba(255, 107, 90, 0.5); }
+.block-screen svg { width: 48px; height: 48px; color: var(--bad); }
+.ip-line { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); }
+.ip-link { padding: 0; border: 0; background: none; color: var(--zone); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; cursor: pointer; text-decoration: underline dotted; }

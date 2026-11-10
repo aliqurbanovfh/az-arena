@@ -116,6 +116,17 @@ Supabase-də **SQL Editor** aç, `supabase/04-chat.sql` faylını yapışdır v�
 
 Mesajlar canlı gəlmirsə, **Database → Publications → supabase_realtime** bölməsində `messages` cədvəlinin işarələndiyini yoxla. İşarələnməsə də, çat hər 10 saniyədən bir yenilənir.
 
+### 10. Təhlükəsizlik (artıq qurulub)
+
+`supabase/05-tehlukesizlik.sql` və `supabase/functions/guard` Supabase-də artıq işləyir:
+
+- **Tor:** sayt hər açılışda serverdən IP-ni yoxlayır. IP Tor çıxış nöqtəsidirsə, "Tor ilə giriş qadağandır" ekranı çıxır və hesabdan çıxış edilir.
+- **DevTools (F12):** F12, Ctrl+Shift+I/J/C, Ctrl+U və sağ klik bağlıdır. Açıq DevTools da tutulur. 1-ci və 2-ci dəfə xəbərdarlıq verilir, 3-cü dəfə hesab avtomatik bloklanır və yalnız admin aça bilər. Adminlərə bu yoxlama tətbiq olunmur.
+- **IP:** hər daxil olmuş istifadəçinin IP ünvanları qeydə alınır. **Admin → İstifadəçilər** bölməsində IP-yə basanda bütün IP-ləri və **eyni IP-dən açılmış digər hesabları** görürsən (multi-hesabları tutmaq üçün). Baş adminin IP-sini yalnız baş admin görür.
+- **Admin → İcmal → Təhlükəsizlik** bölməsində son Tor və F12 hadisələri kimin etdiyi ilə birgə görünür.
+
+Qeyd: bu yoxlamalar adi istifadəçiləri dayandırır. Bilikli adam onları keçə bilər, amma məlumatları onsuz da bazadakı qaydalar qoruyur.
+
 ---
 
 ## Necə işləyir
